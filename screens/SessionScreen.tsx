@@ -9,7 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { BlurCard } from '../components/BlurCard';
 import { colors, spacing, fontFamilies } from '../theme';
-import { QUESTIONS, ANTHROPIC_KEY } from '../constants';
+import { QUESTIONS } from '../constants';
+import { callClaude } from '../lib/ai/client';
 import { getTransition, generateInsightAndTraits } from '../lib/api';
 import { saveSession, loadStreakAndCount } from '../lib/supabase';
 
@@ -165,13 +166,8 @@ export function SessionScreen({
         : '';
       const usedList = used.length > 0 ? 'Do not ask any of these:\n' + used.join('\n') + '\n\n' : '';
       const prompt = horoscopeContext + `\n\nGenerate ONE powerful journaling question for this person. ${recentTopics}${traitContext}${answeredSoFar}${usedList}Style: direct, slightly confrontational, introspective. Max 15 words. No preamble, just the question.`;
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 60, messages: [{ role: 'user', content: prompt }] }),
-      });
-      const data = await response.json();
-      return data.content[0].text.trim().replace(/^["']|["']$/g, '');
+      const result = await callClaude(prompt, 60);
+      return result.replace(/^["']|["']$/g, '');
     } catch {
       return getNextQuestion(used);
     }
