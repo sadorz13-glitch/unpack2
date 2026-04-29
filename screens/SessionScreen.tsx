@@ -211,8 +211,8 @@ export function SessionScreen({
       let streakVal = 0;
       let totalVal = 0;
       try {
-        await saveSession(newAllAnswers, insightText, traitsResult, topicResult, insightShortText, userId);
-        const { streak, total } = await loadStreakAndCount(true, userId);
+        await saveSession(newAllAnswers, insightText, traitsResult, topicResult, insightShortText);
+        const { streak, total } = await loadStreakAndCount(true);
         streakVal = streak;
         totalVal = total;
         sessionSavedRef.current = true;
@@ -329,8 +329,8 @@ export function SessionScreen({
     }
     // Fallback: session wasn't saved yet (e.g., API error path)
     try {
-      await saveSession(answersRef.current, insight, currentTraits || {}, currentTopic, insightShort, userId);
-      const { streak, total } = await loadStreakAndCount(true, userId);
+      await saveSession(answersRef.current, insight, currentTraits || {}, currentTopic, insightShort);
+      const { streak, total } = await loadStreakAndCount(true);
       onSessionComplete({
         answers: answersRef.current, insight, insightShort,
         traits: currentTraits || {}, topic: currentTopic, streak, total,
@@ -348,7 +348,7 @@ export function SessionScreen({
     onStopTTS();
     if (!sessionSavedRef.current && answersRef.current.length > 0 && insight) {
       try {
-        await saveSession(answersRef.current, insight, currentTraits || {}, currentTopic, insightShort, userId);
+        await saveSession(answersRef.current, insight, currentTraits || {}, currentTopic, insightShort);
       } catch { /* best effort */ }
     }
     onExit();

@@ -14,10 +14,9 @@ export async function saveSession(
   insight: string,
   traits: Record<string, number>,
   topic: string,
-  insightShort: string = '',
-  userIdOverride: string | null = null
+  insightShort: string = ''
 ): Promise<void> {
-  const uid = userIdOverride || getUserId();
+  const uid = getUserId();
   const { data: session, error } = await supabase
     .from('sessions')
     .insert({ user_id: uid, insight, insight_short: insightShort, topic, traits })
@@ -38,11 +37,10 @@ export async function saveSession(
 }
 
 export async function loadStreakAndCount(
-  forceToday: boolean = false,
-  userIdOverride: string | null = null
+  forceToday: boolean = false
 ): Promise<StreakResult> {
   try {
-    const uid = userIdOverride || getUserId();
+    const uid = getUserId();
     const { data, count } = await supabase
       .from('sessions')
       .select('created_at', { count: 'exact' })
@@ -111,9 +109,9 @@ export async function loadStreakAndCount(
   }
 }
 
-export async function loadAllAnswers(userIdOverride: string | null = null): Promise<any[]> {
+export async function loadAllAnswers(): Promise<any[]> {
   try {
-    const uid = userIdOverride || getUserId();
+    const uid = getUserId();
     const { data: sessions } = await supabase
       .from('sessions')
       .select('id, created_at')
@@ -158,11 +156,9 @@ export async function loadAllAnswers(userIdOverride: string | null = null): Prom
   }
 }
 
-export async function loadWeeklyTraits(
-  userIdOverride: string | null = null
-): Promise<Record<string, number> | null> {
+export async function loadWeeklyTraits(): Promise<Record<string, number> | null> {
   try {
-    const uid = userIdOverride || getUserId();
+    const uid = getUserId();
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const { data } = await supabase

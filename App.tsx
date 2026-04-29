@@ -179,7 +179,7 @@ export default function App() {
   useEffect(() => {
     if (!authReady || needsOnboarding) return;
 
-    loadStreakAndCount(false, userId).then(({ streak, total }) => {
+    loadStreakAndCount(false).then(({ streak, total }) => {
       setStreakDays(streak);
       setSessionCount(total);
       setSessionCountLoaded(true);
@@ -197,7 +197,7 @@ export default function App() {
         scheduleStreakReminders(doneToday);
       });
 
-    loadWeeklyTraits(userId).then(wt => { if (wt) setWeeklyTraits(wt); });
+    loadWeeklyTraits().then(wt => { if (wt) setWeeklyTraits(wt); });
 
     (async () => {
       const htVal = await AsyncStorage.getItem('handledTopics');
@@ -373,7 +373,7 @@ export default function App() {
                     .then(val => { try { return val ? JSON.parse(val) : []; } catch { return []; } })
                     .then(ht => loadTherapyPreview(ht))
                     .then(line => setTherapyPreview(line || ''));
-                  loadWeeklyTraits(userId).then(wt => { if (wt) setWeeklyTraits(wt); });
+                  loadWeeklyTraits().then(wt => { if (wt) setWeeklyTraits(wt); });
                   setActiveTab(0); pagerRef.current?.setPage(0);
                 }}
                 onExit={() => { setActiveTab(0); pagerRef.current?.setPage(0); }}

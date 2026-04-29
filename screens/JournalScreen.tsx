@@ -55,7 +55,7 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
 
   async function loadMonth(date: Date) {
     setCalendarLoading(true);
-    const map = await loadCalendarMonth(date.getFullYear(), date.getMonth(), userId);
+    const map = await loadCalendarMonth(date.getFullYear(), date.getMonth());
     setCalendarSessions(map as any);
     setCalendarLoading(false);
   }
@@ -283,7 +283,7 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
           <TouchableOpacity style={styles.actionBtn} onPress={() => {
             setDetailView('answers');
             setAllAnswersLoading(true);
-            loadAllAnswers(userId).then(data => { setAllAnswers(data); setAllAnswersLoading(false); });
+            loadAllAnswers().then(data => { setAllAnswers(data); setAllAnswersLoading(false); });
           }}>
             <Text style={styles.actionBtnText}>MY ANSWERS</Text>
           </TouchableOpacity>

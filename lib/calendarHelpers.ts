@@ -23,8 +23,8 @@ export async function loadDayNote(date: string): Promise<string> {
   }
 }
 
-export async function loadCalendarMonth(year: number, month: number, userIdOverride?: string | null): Promise<Record<string, CalendarDay>> {
-  const uid = userIdOverride ?? getUserId();
+export async function loadCalendarMonth(year: number, month: number): Promise<Record<string, CalendarDay>> {
+  const uid = getUserId();
   const start = new Date(year, month, 1).toISOString();
   const end = new Date(year, month + 1, 1).toISOString();
   const startDate = new Date(year, month, 1).toLocaleDateString('en-CA');
