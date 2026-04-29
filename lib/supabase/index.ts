@@ -17,6 +17,7 @@ export async function saveSession(
   insightShort: string = ''
 ): Promise<void> {
   const uid = getUserId();
+  if (!uid) throw new Error('Not authenticated');
   const { data: session, error } = await supabase
     .from('sessions')
     .insert({ user_id: uid, insight, insight_short: insightShort, topic, traits })
@@ -41,6 +42,7 @@ export async function loadStreakAndCount(
 ): Promise<StreakResult> {
   try {
     const uid = getUserId();
+    if (!uid) throw new Error('Not authenticated');
     const { data, count } = await supabase
       .from('sessions')
       .select('created_at', { count: 'exact' })
@@ -112,6 +114,7 @@ export async function loadStreakAndCount(
 export async function loadAllAnswers(): Promise<any[]> {
   try {
     const uid = getUserId();
+    if (!uid) throw new Error('Not authenticated');
     const { data: sessions } = await supabase
       .from('sessions')
       .select('id, created_at')
@@ -159,6 +162,7 @@ export async function loadAllAnswers(): Promise<any[]> {
 export async function loadWeeklyTraits(): Promise<Record<string, number> | null> {
   try {
     const uid = getUserId();
+    if (!uid) throw new Error('Not authenticated');
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const { data } = await supabase

@@ -74,5 +74,6 @@ export function buildHoroscopeContext(dob: string | null | undefined): string {
 }
 
 export async function saveProfile(name: string, dob: string): Promise<void> {
+  if (!_userId) throw new Error('Not authenticated');
   await supabase.from('profiles').upsert({ user_id: _userId, name, dob });
 }

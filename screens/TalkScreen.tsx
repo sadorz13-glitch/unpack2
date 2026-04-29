@@ -108,12 +108,14 @@ export function TalkScreen({
     try {
       const uid = getUserId();
       const { data: recentSessions } = await supabase
-        .from('sessions').select('insight, topic, traits, created_at')
+        .from('sessions').select('id, insight, topic, traits, created_at')
         .eq('user_id', uid).order('created_at', { ascending: false }).limit(3);
 
-      const { data: recentAnswers } = await supabase
-        .from('answers').select('question, answer, created_at')
-        .order('created_at', { ascending: false }).limit(9);
+      const sessionIds = (recentSessions || []).map((s: any) => s.id);
+      const { data: recentAnswers } = sessionIds.length > 0
+        ? await supabase.from('answers').select('question, answer, created_at')
+            .in('session_id', sessionIds).order('created_at', { ascending: false }).limit(9)
+        : { data: [] };
 
       const formatDate = (iso: string) => {
         const diffDays = Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
