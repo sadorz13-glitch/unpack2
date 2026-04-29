@@ -47,14 +47,22 @@ export function AuthScreen({ onAuthComplete }: Props) {
     Alert.alert('Wipe all data?', 'Deletes all Supabase rows and clears local storage.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Wipe', style: 'destructive', onPress: async () => {
-        await supabase.from('answers').delete().neq('id', 0);
-        await supabase.from('sessions').delete().neq('id', 0);
-        await supabase.from('day_notes').delete().neq('id', 0);
-        await supabase.from('profiles').delete().not('user_id', 'is', null);
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        const uid = currentSession?.user?.id;
+        if (!uid) { Alert.alert('Not signed in'); return; }
+        const { data: userSessions } = await supabase
+          .from('sessions').select('id').eq('user_id', uid);
+        const ids = (userSessions || []).map((s: any) => s.id);
+        if (ids.length > 0) {
+          await supabase.from('answers').delete().in('session_id', ids);
+        }
+        await supabase.from('sessions').delete().eq('user_id', uid);
+        await supabase.from('day_notes').delete().eq('user_id', uid);
+        await supabase.from('profiles').delete().eq('user_id', uid);
         await supabase.auth.signOut();
         await AsyncStorage.clear();
         setStep('email'); setEmail(''); setCode(''); setErrorMsg('');
-        Alert.alert('Done', 'All data wiped.');
+        Alert.alert('Done', 'Your data has been wiped.');
       }},
     ]);
   }
