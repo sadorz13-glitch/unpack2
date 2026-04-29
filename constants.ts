@@ -3,10 +3,6 @@ import { Dimensions } from 'react-native';
 // ─── KEYS & CONFIG ────────────────────────────────────────────────────────────
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
-export const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY!;
-export const OPENAI_KEY = process.env.EXPO_PUBLIC_OPENAI_KEY!;
-export const ELEVENLABS_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_KEY!;
-export const ELEVENLABS_VOICE_ID = process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID!;
 export const CLAUDE_MODEL = 'claude-sonnet-4-6';
 export const ANTHROPIC_API_VERSION = '2023-06-01';
 
