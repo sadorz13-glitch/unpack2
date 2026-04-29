@@ -22,6 +22,7 @@ export function AuthScreen({ onAuthComplete }: Props) {
   const [code, setCode] = useState('');
   const [step, setStep] = useState<Step>('email');
   const [errorMsg, setErrorMsg] = useState('');
+  const [lastSentAt, setLastSentAt] = useState(0);
 
   async function sendMagicLink() {
     const trimmed = email.trim().toLowerCase();
@@ -39,6 +40,7 @@ export function AuthScreen({ onAuthComplete }: Props) {
       setErrorMsg(error.message);
       setStep('error');
     } else {
+      setLastSentAt(Date.now());
       setStep('sent');
     }
   }
@@ -155,6 +157,8 @@ export function AuthScreen({ onAuthComplete }: Props) {
 
             {step === 'sending' ? (
               <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.xl }} />
+            ) : Date.now() - lastSentAt < 60_000 ? (
+              <Text style={[styles.ghostText, { marginTop: spacing.xl }]}>CHECK YOUR INBOX — RESEND IN 60S</Text>
             ) : (
               <TouchableOpacity style={styles.btn} onPress={sendMagicLink}>
                 <Text style={styles.btnText}>SEND MAGIC LINK</Text>

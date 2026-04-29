@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { checkRateLimit } from '../_shared/rateLimiter.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -18,6 +19,9 @@ Deno.serve(async (req: Request) => {
   );
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return new Response('Unauthorized', { status: 401, headers: CORS });
+
+  const allowed = await checkRateLimit(user.id, 'elevenlabs-proxy');
+  if (!allowed) return new Response('Rate limit exceeded', { status: 429, headers: CORS });
 
   const { text, stability, similarity_boost, style, use_speaker_boost } = await req.json();
   const voiceId = Deno.env.get('ELEVENLABS_VOICE_ID')!;
