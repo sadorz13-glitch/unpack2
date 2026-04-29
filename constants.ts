@@ -3,6 +3,8 @@ import { Dimensions } from 'react-native';
 // ─── KEYS & CONFIG ────────────────────────────────────────────────────────────
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID!;
+export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID!;
 export const CLAUDE_MODEL = 'claude-sonnet-4-6';
 export const ANTHROPIC_API_VERSION = '2023-06-01';
 
@@ -72,6 +74,4 @@ export const { width } = Dimensions.get('window');
 export const CARD_SIZE = (width - 72) / 2;
 
 
-export const OTP_CODE_LENGTH = 8;
-export const AUTH_REDIRECT_URL = 'unpack://auth';
 export const STORAGE_KEY_HAS_SEEN_WELCOME = 'hasSeenWelcome';
