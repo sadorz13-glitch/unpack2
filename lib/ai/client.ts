@@ -1,7 +1,7 @@
 import { SUPABASE_URL, CLAUDE_MODEL } from '../../constants';
 import { getAccessToken } from '../auth';
 
-function sanitizeInput(text: string, maxChars = 2000): string {
+export function sanitizeInput(text: string, maxChars = 2000): string {
   return text.replace(/\0/g, '').slice(0, maxChars);
 }
 

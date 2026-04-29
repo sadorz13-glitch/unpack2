@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurCard } from '../components/BlurCard';
 import { colors, spacing, fontFamilies } from '../theme';
 import { supabase } from '../lib/supabase';
-import { callClaude, callClaudeChat } from '../lib/ai/client';
+import { callClaude, callClaudeChat, sanitizeInput } from '../lib/ai/client';
 import { loadTherapyPreview } from '../lib/ai/therapy';
 import { getUserId } from '../lib/auth';
 import type { ChatMessage } from '../types';
@@ -131,9 +131,9 @@ export function TalkScreen({
         .join('\n\n');
 
       const avoidStr = handledTopics.length > 0
-        ? `\n\nDo NOT bring up these topics again: ${handledTopics.join(', ')}.` : '';
+        ? `\n\nDo NOT bring up these topics again: ${handledTopics.map(t => sanitizeInput(t, 100)).join(', ')}.` : '';
       const flaggedStr = flaggedTopics.length > 0
-        ? `\n\nHIGH PRIORITY — The user said they genuinely do not understand why they feel/think/do the following. Focus on gently helping them explore and understand: ${flaggedTopics.join(', ')}.` : '';
+        ? `\n\nHIGH PRIORITY — The user said they genuinely do not understand why they feel/think/do the following. Focus on gently helping them explore and understand: ${flaggedTopics.map(t => sanitizeInput(t, 100)).join(', ')}.` : '';
       const topicInstruction = forceTopic
         ? ` You MUST open specifically about this topic: "${forceTopic}". Reference when it was said.`
         : ' Pick ONE specific thing the user said recently and open with an observation about it — referencing when they said it if it adds something.';

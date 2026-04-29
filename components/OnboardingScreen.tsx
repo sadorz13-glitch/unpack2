@@ -51,6 +51,7 @@ export function OnboardingScreen({ onComplete }: Props) {
           onChangeText={setName}
           autoCapitalize="words"
           returnKeyType="next"
+          maxLength={100}
         />
 
         <Text style={s.label}>DATE OF BIRTH</Text>
