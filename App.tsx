@@ -12,11 +12,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 
-import { ANTHROPIC_KEY, CLAUDE_MODEL, ANTHROPIC_API_VERSION, STORAGE_KEY_HAS_SEEN_WELCOME } from './constants';
-import { supabase, saveSession, loadStreakAndCount, loadWeeklyTraits, loadLastSession } from './lib/supabase';
+import { STORAGE_KEY_HAS_SEEN_WELCOME } from './constants';
+import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession } from './lib/supabase';
 import { initAuth, buildHoroscopeContext, setAuthUser } from './lib/auth';
 import { requestNotificationPermissions, scheduleDailyReminder, scheduleStreakReminders } from './lib/notifications';
-import { callClaude } from './lib/ai/client';
 import { loadTherapyPreview } from './lib/ai/therapy';
 import { loadJournalEntries } from './lib/journalHelpers';
 import { AuthScreen } from './screens/AuthScreen';
@@ -32,7 +31,6 @@ import { colors } from './theme';
 import { useVoice } from './hooks/useVoice';
 import { useTTS } from './hooks/useTTS';
 import { useStreak } from './hooks/useStreak';
-import type { ChatMessage } from './types';
 
 // ─── NOTIFICATION HANDLER ──────────────────────────────────────────────────
 Notifications.setNotificationHandler({
@@ -73,17 +71,9 @@ export default function App() {
   const [hasSessionToday, setHasSessionToday] = useState(false);
   const [weeklyTraits, setWeeklyTraits] = useState<Record<string, number> | null>(null);
   const [therapyPreview, setTherapyPreview] = useState<string | null>(null);
-  const [pinnedTherapyTopic, setPinnedTherapyTopic] = useState('');
   const [dayNote, setDayNote] = useState('');
   const [freshSession, setFreshSession] = useState(false);
-
-  // ── Therapy chat (moves to TalkScreen in Phase 3) ───────────────────────
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [therapyInput, setTherapyInput] = useState('');
-  const [therapyLoading, setTherapyLoading] = useState(false);
-  const [inputMode, setInputMode] = useState<'voice' | 'type'>('voice');
-  const [handledTopics, setHandledTopics] = useState<string[]>([]);
-  const [flaggedTopics, setFlaggedTopics] = useState<string[]>([]);
+  const [therapyResetTick, setTherapyResetTick] = useState(0);
 
   // ── Hooks ────────────────────────────────────────────────────────────────
   const {
@@ -103,6 +93,7 @@ export default function App() {
   const sessionVoiceModeRef = useRef(false);
   const sessionVoiceSubmitRef = useRef<((text: string) => void) | null>(null);
   const therapyVoiceModeRef = useRef(false);
+  const therapyVoiceSubmitRef = useRef<((text: string) => void) | null>(null);
   const writingVoiceModeRef = useRef(false);
 
   // Voice routing wrapper — routes transcribed text to the correct handler
@@ -111,10 +102,9 @@ export default function App() {
       if (sessionVoiceModeRef.current) {
         sessionVoiceSubmitRef.current?.(text);
       } else if (therapyVoiceModeRef.current) {
-        sendTherapyMessage(text);
+        therapyVoiceSubmitRef.current?.(text);
       } else {
         setterFn((prev: string) => (prev ? prev + ' ' + text : text));
-        setInputMode('type');
       }
     });
   }
@@ -124,14 +114,6 @@ export default function App() {
   }
 
   // ── Effects ──────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (handledTopics.length > 0) AsyncStorage.setItem('handledTopics', JSON.stringify(handledTopics));
-  }, [handledTopics]);
-
-  useEffect(() => {
-    if (flaggedTopics.length > 0) AsyncStorage.setItem('flaggedTopics', JSON.stringify(flaggedTopics));
-  }, [flaggedTopics]);
 
   // Android back: non-home tabs go to home tab; home tab exits app
   useEffect(() => {
@@ -221,25 +203,8 @@ export default function App() {
       const htVal = await AsyncStorage.getItem('handledTopics');
       const ht = htVal ? JSON.parse(htVal) : [];
       const line = await loadTherapyPreview(ht);
-      if (line) {
-        setTherapyPreview(line);
-        try {
-          const extracted = await callClaude(
-            `Extract the core topic in 2-3 words, no punctuation: "${line}"`, 15
-          );
-          setPinnedTherapyTopic(extracted);
-        } catch {}
-      } else {
-        setTherapyPreview('');
-      }
+      setTherapyPreview(line || '');
     })();
-
-    AsyncStorage.getItem('handledTopics').then(val => {
-      if (val) { try { setHandledTopics(JSON.parse(val)); } catch {} }
-    });
-    AsyncStorage.getItem('flaggedTopics').then(val => {
-      if (val) { try { setFlaggedTopics(JSON.parse(val)); } catch {} }
-    });
 
     loadJournalEntries(todayStr).then(entries => {
       if (entries.length > 0) setDayNote(entries[entries.length - 1].note);
@@ -251,134 +216,9 @@ export default function App() {
         setInsightShort(last.insight_short || '');
         setTraits(last.traits || null);
         setTopic(last.topic || '');
-        try {
-          const { data: savedAnswers } = await supabase
-            .from('answers').select('question, answer')
-            .eq('session_id', last.id).order('id', { ascending: true });
-          // answers passed to HomeScreen via onSessionComplete; no state needed here
-        } catch {}
       }
     });
   }, [authReady, needsOnboarding]);
-
-  // ── Therapy ──────────────────────────────────────────────────────────────
-
-  async function openTherapySession(forceTopic = '') {
-    setChatMessages([]);
-    setTherapyLoading(true);
-    try {
-      const { data: recentSessions } = await supabase
-        .from('sessions').select('insight, topic, traits, created_at')
-        .eq('user_id', userId).order('created_at', { ascending: false }).limit(3);
-
-      const { data: recentAnswers } = await supabase
-        .from('answers').select('question, answer, created_at')
-        .order('created_at', { ascending: false }).limit(9);
-
-      const formatDate = (iso: string) => {
-        const d = new Date(iso);
-        const diffDays = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays === 0) return 'today';
-        if (diffDays === 1) return 'yesterday';
-        if (diffDays < 7) return 'recently';
-        return 'a while back';
-      };
-
-      const sessionHistory = (recentSessions || [])
-        .map((s: any) => `[${formatDate(s.created_at)}] Topic: ${s.topic} — Insight: ${s.insight}`)
-        .join('\n');
-      const answerHistory = (recentAnswers || [])
-        .map((a: any) => `[${formatDate(a.created_at)}] Q: ${a.question}\nA: ${a.answer}`)
-        .join('\n\n');
-
-      const avoidTopics = handledTopics.length > 0
-        ? `\n\nDo NOT bring up these topics again: ${handledTopics.join(', ')}.` : '';
-      const flaggedContext = flaggedTopics.length > 0
-        ? `\n\nHIGH PRIORITY — The user said they genuinely do not understand why they feel/think/do the following. Focus on gently helping them explore and understand: ${flaggedTopics.join(', ')}.` : '';
-      const topicInstruction = forceTopic
-        ? ` You MUST open specifically about this topic: "${forceTopic}". Reference when it was said.`
-        : ' Pick ONE specific thing the user said recently and open with an observation about it — referencing when they said it if it adds something.';
-
-      const context =
-        horoscopeContext +
-        ' You are a therapist with memory of past sessions.' + topicInstruction +
-        ' Then ask ONE short follow-up question about that specific thing only. Max 2 sentences. No fluff.' +
-        avoidTopics + flaggedContext +
-        '\n\nPast sessions:\n' + sessionHistory +
-        '\n\nPast answers:\n' + answerHistory;
-
-      const opening = await callClaude(context, 200);
-      setChatMessages([{ role: 'assistant', content: opening }]);
-      if (ttsEnabled) {
-        speakAndWait(opening)
-          .then(() => { if (therapyVoiceModeRef.current) startVoiceRecording(setTherapyInput); })
-          .catch(() => {});
-      }
-
-      // Extract and store topic label (background, non-blocking)
-      callClaude(`Extract the core topic of this sentence in 2-3 words, no punctuation: "${opening}"`, 20)
-        .then(extractedTopic => {
-          const newHandled = [...new Set([...handledTopics, extractedTopic])];
-          setHandledTopics(newHandled);
-          AsyncStorage.setItem('handledTopics', JSON.stringify(newHandled));
-        })
-        .catch(() => {});
-    } catch {
-      setChatMessages([{ role: 'assistant', content: "Hey. I've been reading through what you've shared. Something tells me there's more going on than you've let on. What's really on your mind?" }]);
-    } finally {
-      setTherapyLoading(false);
-    }
-  }
-
-  async function sendTherapyMessage(msgText?: string) {
-    const userMsg = (msgText ?? therapyInput).trim();
-    if (!userMsg || therapyLoading) return;
-    await stopTTS();
-    setTherapyInput('');
-    const newMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: userMsg }];
-    setChatMessages(newMessages);
-    setTherapyLoading(true);
-
-    const iDontKnowPhrases = ["i don't know", "i dont know", "not sure", "i have no idea", "can't figure", "cant figure", "help me figure", "i don't understand why", "no idea"];
-    if (iDontKnowPhrases.some(p => userMsg.toLowerCase().includes(p)) && pinnedTherapyTopic) {
-      setFlaggedTopics(prev => [...new Set([...prev, pinnedTherapyTopic])]);
-    }
-
-    try {
-      const sysPrompt =
-        horoscopeContext +
-        " You are a therapist having a real conversation. Follow the thread. Don't push — let them lead. Sometimes make an observation and leave space. Sometimes ask a question. Never do both. Max 2 short sentences. No fluff.";
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': ANTHROPIC_API_VERSION,
-        },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 80,
-          system: sysPrompt,
-          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-        }),
-      });
-      const data = await res.json();
-      const reply = data.content[0].text.trim();
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-      if (ttsEnabled) {
-        speakAndWait(reply)
-          .then(() => { if (therapyVoiceModeRef.current) startVoiceRecording(setTherapyInput); })
-          .catch(() => {});
-      }
-    } catch {
-      setChatMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: "Sorry, I lost my train of thought. What were you saying?" },
-      ]);
-    } finally {
-      setTherapyLoading(false);
-    }
-  }
 
   // ── Dev wipe ─────────────────────────────────────────────────────────────
 
@@ -399,7 +239,7 @@ export default function App() {
           ]);
           setInsight(''); setInsightShort(''); setTraits(null); setTopic('');
           setSessionCount(0); setStreakDays(0); setHasSessionToday(false); setDayNote('');
-          setHandledTopics([]); setFlaggedTopics([]); setTherapyPreview(''); setWeeklyTraits(null);
+          setTherapyPreview(''); setWeeklyTraits(null); setTherapyResetTick(t => t + 1);
           Alert.alert('Done', 'All data wiped.');
         },
       },
@@ -529,7 +369,10 @@ export default function App() {
                     setShowStreakCelebration(true);
                     runStreakFireAnimation(oldStreak, streak);
                   }
-                  loadTherapyPreview(handledTopics).then(line => setTherapyPreview(line || ''));
+                  AsyncStorage.getItem('handledTopics')
+                    .then(val => { try { return val ? JSON.parse(val) : []; } catch { return []; } })
+                    .then(ht => loadTherapyPreview(ht))
+                    .then(line => setTherapyPreview(line || ''));
                   loadWeeklyTraits(userId).then(wt => { if (wt) setWeeklyTraits(wt); });
                   setActiveTab(0); pagerRef.current?.setPage(0);
                 }}
@@ -546,26 +389,23 @@ export default function App() {
             {/* Tab 2: Talk */}
             <View key="2" style={{ flex: 1 }}>
               <TalkScreen
-                chatMessages={chatMessages}
-                therapyInput={therapyInput}
-                therapyLoading={therapyLoading}
-                isRecording={isRecording}
-                isTranscribing={isTranscribing}
-                inputMode={inputMode}
-                micPulseAnim={micPulseAnim}
-                meteringLevelAnim={meteringLevelAnim}
+                horoscopeContext={horoscopeContext}
                 ttsEnabled={ttsEnabled}
+                stopTTS={stopTTS}
+                speakAndWait={speakAndWait}
                 sessionCount={sessionCount}
                 sessionCountLoaded={sessionCountLoaded}
                 therapyPreview={therapyPreview}
-                pinnedTherapyTopic={pinnedTherapyTopic}
-                onSendMessage={sendTherapyMessage}
-                onSetTherapyInput={setTherapyInput}
-                onSetInputMode={mode => setInputMode(mode as 'voice' | 'type')}
-                onOpenTherapy={openTherapySession}
+                therapyResetTick={therapyResetTick}
+                isRecording={isRecording}
+                isTranscribing={isTranscribing}
+                micPulseAnim={micPulseAnim}
+                meteringLevelAnim={meteringLevelAnim}
                 onStartVoiceRecording={startVoiceRecording}
                 onStopVoiceRecording={stopVoiceRecording}
                 therapyVoiceModeRef={therapyVoiceModeRef}
+                therapyVoiceSubmitRef={therapyVoiceSubmitRef}
+                onTherapyPreviewChange={line => setTherapyPreview(line)}
               />
             </View>
 

@@ -27,3 +27,22 @@ export async function callClaude(
   const data = await res.json();
   return data.content[0].text.trim();
 }
+
+export async function callClaudeChat(
+  system: string,
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  maxTokens: number
+): Promise<string> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': ANTHROPIC_API_VERSION,
+    },
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, system, messages }),
+  });
+  if (!res.ok) throw new Error(`Claude API error ${res.status}`);
+  const data = await res.json();
+  return data.content[0].text.trim();
+}
