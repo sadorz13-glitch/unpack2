@@ -11,11 +11,21 @@ export async function loadTherapyPreview(avoidTopics: string[] = []): Promise<st
       .order('created_at', { ascending: false })
       .limit(3);
 
-    const { data: recentAnswers } = await supabase
-      .from('answers')
-      .select('question, answer')
+    const { data: userSessionIds } = await supabase
+      .from('sessions')
+      .select('id')
+      .eq('user_id', getUserId())
       .order('created_at', { ascending: false })
-      .limit(6);
+      .limit(3);
+    const ids = (userSessionIds || []).map((s: any) => s.id);
+    const { data: recentAnswers } = ids.length > 0
+      ? await supabase
+          .from('answers')
+          .select('question, answer')
+          .in('session_id', ids)
+          .order('created_at', { ascending: false })
+          .limit(6)
+      : { data: [] };
 
     if (!recentSessions || recentSessions.length === 0) return '';
 
