@@ -11,6 +11,15 @@ import { supabase } from '../lib/supabase';
 import { callClaude, callClaudeChat, sanitizeInput } from '../lib/ai/client';
 import { loadTherapyPreview } from '../lib/ai/therapy';
 import { getUserId } from '../lib/auth';
+import { STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, FREE_VENT_MESSAGE_LIMIT as FREE_VENT_LIMIT } from '../constants';
+import { track } from '../lib/analytics';
+import { PaywallScreen } from './PaywallScreen';
+
+const I_DONT_KNOW_PHRASES = [
+  "i don't know", "i dont know", "not sure", "i have no idea",
+  "can't figure", "cant figure", "help me figure",
+  "i don't understand why", "no idea",
+];
 import type { ChatMessage } from '../types';
 
 type Props = {
@@ -31,6 +40,12 @@ type Props = {
   therapyVoiceModeRef: React.MutableRefObject<boolean>;
   therapyVoiceSubmitRef: React.MutableRefObject<((text: string) => void) | null>;
   onTherapyPreviewChange: (line: string) => void;
+  isConnected?: boolean;
+  canUseVent?: boolean;
+  freeMessagesRemaining?: number;
+  isPremium?: boolean;
+  onVentMessageSent?: () => Promise<void>;
+  onPremiumStatusChanged?: () => Promise<void>;
 };
 
 export function TalkScreen({
@@ -39,6 +54,12 @@ export function TalkScreen({
   isRecording, isTranscribing, micPulseAnim, meteringLevelAnim,
   onStartVoiceRecording, onStopVoiceRecording,
   therapyVoiceModeRef, therapyVoiceSubmitRef, onTherapyPreviewChange,
+  isConnected = true,
+  canUseVent = true,
+  freeMessagesRemaining = 5,
+  isPremium = false,
+  onVentMessageSent,
+  onPremiumStatusChanged,
 }: Props) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -50,6 +71,7 @@ export function TalkScreen({
   const [handledTopics, setHandledTopics] = useState<string[]>([]);
   const [flaggedTopics, setFlaggedTopics] = useState<string[]>([]);
   const [pinnedTherapyTopic, setPinnedTherapyTopic] = useState('');
+  const [showPaywall, setShowPaywall] = useState(false);
 
   // Always expose latest sendTherapyMessage to App's voice router
   useEffect(() => {
@@ -58,21 +80,21 @@ export function TalkScreen({
 
   // Load persisted topics on mount
   useEffect(() => {
-    AsyncStorage.getItem('handledTopics').then(val => {
+    AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS).then(val => {
       if (val) { try { setHandledTopics(JSON.parse(val)); } catch {} }
     });
-    AsyncStorage.getItem('flaggedTopics').then(val => {
+    AsyncStorage.getItem(STORAGE_KEY_FLAGGED_TOPICS).then(val => {
       if (val) { try { setFlaggedTopics(JSON.parse(val)); } catch {} }
     });
   }, []);
 
   // Persist topics when they change
   useEffect(() => {
-    if (handledTopics.length > 0) AsyncStorage.setItem('handledTopics', JSON.stringify(handledTopics));
+    if (handledTopics.length > 0) AsyncStorage.setItem(STORAGE_KEY_HANDLED_TOPICS, JSON.stringify(handledTopics));
   }, [handledTopics]);
 
   useEffect(() => {
-    if (flaggedTopics.length > 0) AsyncStorage.setItem('flaggedTopics', JSON.stringify(flaggedTopics));
+    if (flaggedTopics.length > 0) AsyncStorage.setItem(STORAGE_KEY_FLAGGED_TOPICS, JSON.stringify(flaggedTopics));
   }, [flaggedTopics]);
 
   // Derive pinnedTherapyTopic when therapyPreview changes
@@ -83,7 +105,6 @@ export function TalkScreen({
       .catch(() => {});
   }, [therapyPreview]);
 
-  // Reset on devWipe
   useEffect(() => {
     if (therapyResetTick === 0) return;
     setChatMessages([]);
@@ -103,6 +124,7 @@ export function TalkScreen({
   const sessionStarted = chatMessages.length > 0 || therapyLoading;
 
   async function openTherapySession(forceTopic = '') {
+    track('vent_session_started');
     setChatMessages([]);
     setTherapyLoading(true);
     try {
@@ -161,7 +183,7 @@ export function TalkScreen({
         .then(extractedTopic => {
           const newHandled = [...new Set([...handledTopics, extractedTopic])];
           setHandledTopics(newHandled);
-          AsyncStorage.setItem('handledTopics', JSON.stringify(newHandled));
+          AsyncStorage.setItem(STORAGE_KEY_HANDLED_TOPICS, JSON.stringify(newHandled));
           loadTherapyPreview(newHandled).then(line => { if (line) onTherapyPreviewChange(line); });
         })
         .catch(() => {});
@@ -175,14 +197,16 @@ export function TalkScreen({
   async function sendTherapyMessage(msgText?: string) {
     const userMsg = (msgText ?? therapyInput).trim();
     if (!userMsg || therapyLoading) return;
+    if (!canUseVent) { setShowPaywall(true); return; }
     await stopTTS();
+    onVentMessageSent?.();
+    track('vent_message_sent', { freeRemaining: Math.max(0, freeMessagesRemaining - 1) });
     setTherapyInput('');
     const newMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: userMsg }];
     setChatMessages(newMessages);
     setTherapyLoading(true);
 
-    const iDontKnowPhrases = ["i don't know", "i dont know", "not sure", "i have no idea", "can't figure", "cant figure", "help me figure", "i don't understand why", "no idea"];
-    if (iDontKnowPhrases.some(p => userMsg.toLowerCase().includes(p)) && pinnedTherapyTopic) {
+    if (I_DONT_KNOW_PHRASES.some(p => userMsg.toLowerCase().includes(p)) && pinnedTherapyTopic) {
       setFlaggedTopics(prev => [...new Set([...prev, pinnedTherapyTopic])]);
     }
 
@@ -214,8 +238,32 @@ export function TalkScreen({
 
   function handleStartTalking() {
     if (sessionStarted) return;
+    if (!canUseVent) { setShowPaywall(true); return; }
     therapyVoiceModeRef.current = true;
     openTherapySession(pinnedTherapyTopic);
+  }
+
+  if (!canUseVent && !sessionStarted) {
+    return (
+      <View style={[styles.root, { justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg, backgroundColor: colors.bg }]}>
+        <Text style={styles.tabTitle}>Vent</Text>
+        <Text style={[styles.lockedSub, { marginTop: spacing.lg, marginBottom: spacing.xl, textAlign: 'center' }]}>
+          You've used your {FREE_VENT_LIMIT} free messages.{'\n'}Upgrade to keep going.
+        </Text>
+        <TouchableOpacity
+          style={{ borderWidth: 1, borderColor: 'rgba(180,140,90,0.4)', borderRadius: 2, paddingVertical: spacing.base, paddingHorizontal: spacing.xl }}
+          onPress={() => setShowPaywall(true)}
+        >
+          <Text style={{ color: colors.accent, fontSize: 11, letterSpacing: 4 }}>UPGRADE TO PREMIUM</Text>
+        </TouchableOpacity>
+        <PaywallScreen
+          visible={showPaywall}
+          source="vent"
+          onClose={() => setShowPaywall(false)}
+          onSubscribed={onPremiumStatusChanged ?? (() => Promise.resolve())}
+        />
+      </View>
+    );
   }
 
   if (sessionCountLoaded && sessionCount === 0) {
@@ -273,11 +321,19 @@ export function TalkScreen({
         )}
       </ScrollView>
 
+      <PaywallScreen
+        visible={showPaywall}
+        source="vent"
+        onClose={() => setShowPaywall(false)}
+        onSubscribed={onPremiumStatusChanged ?? (() => Promise.resolve())}
+      />
+
       <View style={[styles.inputArea, { paddingBottom: Math.max(insets.bottom, spacing.base) }]}>
         {inputMode === 'voice' ? (
           <View style={styles.voiceRow}>
             <TouchableOpacity
               onPress={() => {
+                if (!isConnected) return;
                 if (!sessionStarted) {
                   handleStartTalking();
                 } else if (isRecording) {
@@ -288,7 +344,8 @@ export function TalkScreen({
                   onStartVoiceRecording(setTherapyInput);
                 }
               }}
-              activeOpacity={0.6}
+              activeOpacity={isConnected ? 0.6 : 1}
+              style={{ opacity: isConnected ? 1 : 0.3 }}
             >
               <Animated.View style={[styles.micRing, { borderColor: isRecording ? 'rgba(180,140,90,0.5)' : colors.border, transform: [{ scale: micPulseAnim }] }]}>
                 <Animated.View style={[styles.micDot, { backgroundColor: isRecording ? colors.accent : '#2a2822', transform: [{ scale: meteringLevelAnim }] }]} />
@@ -318,7 +375,10 @@ export function TalkScreen({
               multiline
               blurOnSubmit={false}
             />
-            <TouchableOpacity onPress={() => sendTherapyMessage()} style={{ paddingVertical: spacing.md }}>
+            <TouchableOpacity
+              onPress={() => { if (isConnected) sendTherapyMessage(); }}
+              style={{ paddingVertical: spacing.md, opacity: isConnected ? 1 : 0.3 }}
+            >
               <Text style={[styles.ghostText, { color: colors.accent, letterSpacing: 3 }]}>SEND</Text>
             </TouchableOpacity>
           </View>

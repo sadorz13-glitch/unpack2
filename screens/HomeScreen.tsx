@@ -1,5 +1,5 @@
 // screens/HomeScreen.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated,
 } from 'react-native';
@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurCard } from '../components/BlurCard';
 import { MiniRadar } from '../components/Radar';
 import { ShimmerTile } from '../components/ShimmerTile';
+import { PaywallScreen } from './PaywallScreen';
 import { colors, spacing, fontFamilies, CARD_SIZE } from '../theme';
 import { TRAITS } from '../constants';
 
@@ -32,8 +33,9 @@ type Props = {
   onOpenTalk: () => void;
   onOpenJournal: () => void;
   onOpenAnswers: () => void;
-  onDevWipe: () => void;
   userId: string | null;
+  isPremium?: boolean;
+  onPremiumStatusChanged?: () => Promise<void>;
 };
 
 export function HomeScreen({
@@ -41,10 +43,11 @@ export function HomeScreen({
   insight, insightShort, traits, weeklyTraits, topic, therapyPreview, dayNote,
   freshSession, streakDisplayValue, showFireEmoji, fireFloatAnim, fireOpacityAnim,
   streakScaleAnim, onStartSession, onOpenTalk, onOpenJournal,
-  onOpenAnswers, onDevWipe, userId,
+  onOpenAnswers, userId, isPremium = false, onPremiumStatusChanged,
 }: Props) {
   const insets = useSafeAreaInsets();
   const topTrait = traits ? TRAITS.reduce((a: string, b: string) => ((traits[a] ?? 0) > (traits[b] ?? 0) ? a : b)) : null;
+  const [showPaywall, setShowPaywall] = useState(false);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -164,26 +167,38 @@ export function HomeScreen({
               </BlurCard>
             </View>
 
-            <View style={styles.halfTileWrapper}>
+            <TouchableOpacity
+              style={styles.halfTileWrapper}
+              activeOpacity={weeklyTraits && !isPremium ? 0.8 : 1}
+              onPress={() => { if (weeklyTraits && !isPremium) setShowPaywall(true); }}
+            >
               <BlurCard style={styles.halfTile}>
                 <Text style={styles.tileLabel}>WEEKLY WHEEL</Text>
-                {weeklyTraits ? (
-                  <MiniRadar traits={weeklyTraits} />
-                ) : (
+                {!weeklyTraits ? (
                   <Text style={styles.lockedText}>
                     {'Unlocks after\n5 sessions\n\n'}{Math.max(0, 5 - sessionCount)} to go
                   </Text>
+                ) : !isPremium ? (
+                  <View style={styles.tileCenter}>
+                    <Text style={{ fontSize: 20, color: colors.textGhost }}>🔒</Text>
+                    <Text style={[styles.tileSubLabel, { marginTop: spacing.sm }]}>PREMIUM</Text>
+                  </View>
+                ) : (
+                  <MiniRadar traits={weeklyTraits} />
                 )}
               </BlurCard>
-            </View>
+            </TouchableOpacity>
+
+            <PaywallScreen
+              visible={showPaywall}
+              source="weekly_wheel"
+              onClose={() => setShowPaywall(false)}
+              onSubscribed={onPremiumStatusChanged ?? (() => Promise.resolve())}
+            />
           </View>
 
         </View>
 
-        {/* Dev wipe (very faint) */}
-        <TouchableOpacity onPress={onDevWipe} style={styles.devWipe}>
-          <Text style={styles.devWipeText}>DEV WIPE</Text>
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -283,6 +298,4 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -16,
   },
-  devWipe: { marginTop: spacing.xl, alignSelf: 'flex-end', opacity: 0.25 },
-  devWipeText: { color: colors.textMuted, fontSize: 9, letterSpacing: 2 },
 });

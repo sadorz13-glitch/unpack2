@@ -16,6 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme';
 import { saveJournalEntry, updateJournalEntry } from '../lib/journalHelpers';
+import { addPendingEntry } from '../lib/offlineQueue';
+import { track } from '../lib/analytics';
 import { generateJournalPrompt, generateJournalReflection } from '../lib/journalAi';
 import { supabase } from '../lib/supabase';
 import { getUserId } from '../lib/auth';
@@ -35,8 +37,9 @@ type Props = {
   topic: string;
   streakDays: number;
   isActive: boolean;
+  isConnected?: boolean;
+  journalRefreshTick?: number;
   isRecording?: boolean;
-  isTranscribing?: boolean;
   micPulseAnim?: Animated.Value;
   meteringLevelAnim?: Animated.Value;
   onStartVoiceRecording?: (setterFn: any) => void;
@@ -67,6 +70,7 @@ function formatHistoryLabel(dateStr: string): string {
 
 export function WritingScreen({
   userId, horoscopeContext, insight, topic, streakDays, isActive,
+  isConnected = true, journalRefreshTick,
   isRecording, micPulseAnim, meteringLevelAnim,
   onStartVoiceRecording, onStopVoiceRecording, writingVoiceModeRef,
 }: Props) {
@@ -106,6 +110,11 @@ export function WritingScreen({
     }
   }, [isActive]);
 
+  // Reload after offline queue flush (journalRefreshTick increments on reconnect)
+  React.useEffect(() => {
+    if (journalRefreshTick && journalRefreshTick > 0) loadTodayEntries();
+  }, [journalRefreshTick]);
+
   async function fetchPrompt() {
     setPromptLoading(true);
     setReflection(null);
@@ -122,11 +131,27 @@ export function WritingScreen({
   async function handleSave() {
     const text = entry.trim();
     if (!text) return;
-    setIsSaving(true);
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
     const timeLabel = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+    if (!isConnected) {
+      await addPendingEntry(date, text, timeLabel);
+      setTodayEntries(prev => [...prev, {
+        id: `pending-${Date.now()}`,
+        note: text,
+        time_label: timeLabel,
+        created_at: now.toISOString(),
+        date,
+      }]);
+      setEntry('');
+      track('journal_entry_saved', { wordCount: wordCount(text), offline: true });
+      return;
+    }
+
+    setIsSaving(true);
     await saveJournalEntry(date, text, timeLabel);
+    track('journal_entry_saved', { wordCount: wordCount(text), offline: false });
     setIsSaving(false);
     setReflectionLoading(true);
     setEntry('');
@@ -153,8 +178,7 @@ export function WritingScreen({
         .order('created_at', { ascending: false })
         .limit(50);
       setHistory(data ?? []);
-    } catch (e) {
-      console.error('[loadHistory]', e);
+    } catch {
       setHistory([]);
     } finally {
       setHistoryLoading(false);
@@ -171,8 +195,7 @@ export function WritingScreen({
         .eq('date', today)
         .order('created_at', { ascending: true });
       setTodayEntries(data ?? []);
-    } catch (e) {
-      console.error('[loadTodayEntries]', e);
+    } catch {
       setTodayEntries([]);
     }
   }
@@ -263,7 +286,7 @@ export function WritingScreen({
               {onStartVoiceRecording && micPulseAnim && meteringLevelAnim ? (
                 <TouchableOpacity
                   onPress={() => {
-                    if (!writingVoiceModeRef || !onStartVoiceRecording || !onStopVoiceRecording) return;
+                    if (!isConnected || !writingVoiceModeRef || !onStartVoiceRecording || !onStopVoiceRecording) return;
                     if (isRecording) {
                       writingVoiceModeRef.current = false;
                       onStopVoiceRecording(setEntry);
@@ -272,8 +295,8 @@ export function WritingScreen({
                       onStartVoiceRecording(setEntry);
                     }
                   }}
-                  activeOpacity={0.6}
-                  style={{ marginRight: 10 }}
+                  activeOpacity={isConnected ? 0.6 : 1}
+                  style={{ marginRight: 10, opacity: isConnected ? 1 : 0.3 }}
                 >
                   <Animated.View style={[styles.micRing, {
                     borderColor: isRecording ? 'rgba(180,140,90,0.5)' : colors.border,

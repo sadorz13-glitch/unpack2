@@ -11,6 +11,7 @@ import { colors, spacing, fontFamilies, SCREEN_WIDTH } from '../theme';
 import { supabase, loadAllAnswers } from '../lib/supabase';
 import { loadDayNote, loadCalendarMonth } from '../lib/calendarHelpers';
 import { saveJournalEntry, loadJournalEntries } from '../lib/journalHelpers';
+import { track } from '../lib/analytics';
 
 // Module-level constant so StyleSheet can reference it
 const cellSize = (SCREEN_WIDTH - 48) / 7;
@@ -77,6 +78,7 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
 
   async function tapDay(d: number) {
     const key = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), d).toLocaleDateString('en-CA');
+    track('calendar_day_tapped', { date: key, hasSession: !!calendarSessions[key]?.id });
     const session = calendarSessions[key] || null;
     const note = await loadDayNote(key);
     setSelectedDay({ date: key, session, answers: null, dayNote: note || '' });
@@ -281,6 +283,7 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
             <Text style={[styles.actionBtnText, !selectedDay && styles.actionBtnTextDisabled]}>WRITE JOURNAL</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn} onPress={() => {
+            track('answers_viewed');
             setDetailView('answers');
             setAllAnswersLoading(true);
             loadAllAnswers().then(data => { setAllAnswers(data); setAllAnswersLoading(false); });

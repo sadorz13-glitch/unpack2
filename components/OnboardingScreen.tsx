@@ -37,14 +37,14 @@ export function OnboardingScreen({ onComplete }: Props) {
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.container}>
-      <View style={s.inner}>
-        <Text style={s.headline}>Before we start.</Text>
-        <Text style={s.sub}>Just the basics.</Text>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
+      <View style={styles.inner}>
+        <Text style={styles.headline}>Before we start.</Text>
+        <Text style={styles.sub}>Just the basicstyles.</Text>
 
-        <Text style={s.label}>YOUR NAME</Text>
+        <Text style={styles.label}>YOUR NAME</Text>
         <TextInput
-          style={s.input}
+          style={styles.input}
           placeholder="First name"
           placeholderTextColor="#555"
           value={name}
@@ -54,10 +54,10 @@ export function OnboardingScreen({ onComplete }: Props) {
           maxLength={100}
         />
 
-        <Text style={s.label}>DATE OF BIRTH</Text>
-        <View style={s.dobRow}>
+        <Text style={styles.label}>DATE OF BIRTH</Text>
+        <View style={styles.dobRow}>
           <TextInput
-            style={[s.input, s.dobInput]}
+            style={[styles.input, styles.dobInput]}
             placeholder="DD"
             placeholderTextColor="#555"
             value={day}
@@ -66,7 +66,7 @@ export function OnboardingScreen({ onComplete }: Props) {
             maxLength={2}
           />
           <TextInput
-            style={[s.input, s.dobInput]}
+            style={[styles.input, styles.dobInput]}
             placeholder="MM"
             placeholderTextColor="#555"
             value={month}
@@ -75,7 +75,7 @@ export function OnboardingScreen({ onComplete }: Props) {
             maxLength={2}
           />
           <TextInput
-            style={[s.input, s.dobInput, { flex: 1.5 }]}
+            style={[styles.input, styles.dobInput, { flex: 1.5 }]}
             placeholder="YYYY"
             placeholderTextColor="#555"
             value={year}
@@ -85,17 +85,17 @@ export function OnboardingScreen({ onComplete }: Props) {
           />
         </View>
 
-        {error ? <Text style={s.error}>{error}</Text> : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <TouchableOpacity style={s.btn} onPress={handleSubmit} disabled={saving}>
-          <Text style={s.btnText}>{saving ? 'Saving...' : "Let's go"}</Text>
+        <TouchableOpacity style={styles.btn} onPress={handleSubmit} disabled={saving}>
+          <Text style={styles.btnText}>{saving ? 'Saving...' : "Let's go"}</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-const s = StyleSheet.create({
+const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0a' },
   inner: { flex: 1, paddingHorizontal: 32, justifyContent: 'center' },
   headline: { fontFamily: 'Georgia', fontSize: 36, fontStyle: 'italic', color: '#fff', marginBottom: 6 },

@@ -2,7 +2,7 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, Alert, BackHandler, Platform,
+  View, BackHandler, Platform,
 } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useFonts, DMSerifDisplay_400Regular, DMSerifDisplay_400Regular_Italic } from '@expo-google-fonts/dm-serif-display';
@@ -12,9 +12,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 
-import { STORAGE_KEY_HAS_SEEN_WELCOME } from './constants';
+import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS } from './constants';
 import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession } from './lib/supabase';
 import { initAuth, buildHoroscopeContext, setAuthUser } from './lib/auth';
+import { track, identifyUser, resetAnalytics } from './lib/analytics';
+import { initIAP, loginIAP, logoutIAP } from './lib/iap';
+import { useSubscription } from './hooks/useSubscription';
 import { requestNotificationPermissions, scheduleDailyReminder, scheduleStreakReminders } from './lib/notifications';
 import { loadTherapyPreview } from './lib/ai/therapy';
 import { loadJournalEntries } from './lib/journalHelpers';
@@ -31,6 +34,12 @@ import { colors } from './theme';
 import { useVoice } from './hooks/useVoice';
 import { useTTS } from './hooks/useTTS';
 import { useStreak } from './hooks/useStreak';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
+import { flushPendingEntries } from './lib/offlineQueue';
+import { OfflineBanner } from './components/OfflineBanner';
+
+// ─── MODULE-LEVEL IAP INIT ────────────────────────────────────────────────
+initIAP();
 
 // ─── NOTIFICATION HANDLER ──────────────────────────────────────────────────
 Notifications.setNotificationHandler({
@@ -89,6 +98,12 @@ export default function App() {
     streakScaleAnim, fireFloatAnim, fireOpacityAnim, runStreakFireAnimation,
   } = useStreak();
 
+  const { isConnected } = useNetworkStatus();
+  const [journalRefreshTick, setJournalRefreshTick] = useState(0);
+  const prevConnectedRef = useRef(true);
+
+  const { isPremium, canUseVent, freeMessagesRemaining, incrementVentMessages, refreshPremiumStatus } = useSubscription();
+
   // ── Voice mode refs ──────────────────────────────────────────────────────
   const sessionVoiceModeRef = useRef(false);
   const sessionVoiceSubmitRef = useRef<((text: string) => void) | null>(null);
@@ -98,6 +113,10 @@ export default function App() {
 
   // Voice routing wrapper — routes transcribed text to the correct handler
   function startVoiceRecording(setterFn: any) {
+    const context = sessionVoiceModeRef.current ? 'session'
+      : therapyVoiceModeRef.current ? 'vent'
+      : 'journal';
+    track('voice_recording_started', { context });
     _startVoiceRecording(setterFn, (text: string) => {
       if (sessionVoiceModeRef.current) {
         sessionVoiceSubmitRef.current?.(text);
@@ -136,9 +155,21 @@ export default function App() {
     }
   }, []);
 
+  // Flush queued journal writes when connectivity is restored
+  useEffect(() => {
+    if (isConnected && !prevConnectedRef.current) {
+      flushPendingEntries().then(() => setJournalRefreshTick(t => t + 1));
+    }
+    prevConnectedRef.current = isConnected;
+  }, [isConnected]);
+
   // Auth init
   useEffect(() => {
     initAuth().then(async ({ userId: uid, profile }) => {
+      if (uid) {
+        identifyUser(uid);
+        loginIAP(uid).catch(() => {});
+      }
       setUserId(uid);
       if (uid && !profile) {
         setNeedsOnboarding(true);
@@ -157,18 +188,24 @@ export default function App() {
         const uid = session.user.id;
         setAuthUser(uid);
         setUserId(uid);
+        identifyUser(uid);
+        loginIAP(uid).catch(() => {});
         const { data: profile } = await supabase
           .from('profiles').select('name, dob').eq('user_id', uid).maybeSingle();
         if (!profile) {
           setNeedsOnboarding(true);
+          if (event === 'SIGNED_IN') track('sign_up');
         } else {
           setHoroscopeContext(buildHoroscopeContext(profile.dob));
           const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
           if (!seen) setShowWelcome(true);
+          if (event === 'SIGNED_IN') track('login');
         }
       } else {
         setAuthUser(null);
         setUserId(null);
+        resetAnalytics();
+        logoutIAP();
       }
     });
 
@@ -200,7 +237,7 @@ export default function App() {
     loadWeeklyTraits().then(wt => { if (wt) setWeeklyTraits(wt); });
 
     (async () => {
-      const htVal = await AsyncStorage.getItem('handledTopics');
+      const htVal = await AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS);
       const ht = htVal ? JSON.parse(htVal) : [];
       const line = await loadTherapyPreview(ht);
       setTherapyPreview(line || '');
@@ -220,33 +257,10 @@ export default function App() {
     });
   }, [authReady, needsOnboarding]);
 
-  // ── Dev wipe ─────────────────────────────────────────────────────────────
-
-  async function devWipe() {
-    Alert.alert('Wipe all data?', 'Deletes everything. Cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Wipe', style: 'destructive', onPress: async () => {
-          await AsyncStorage.multiRemove(['handledTopics', 'flaggedTopics']);
-          const { data: sessions } = await supabase.from('sessions').select('id').eq('user_id', userId);
-          if (sessions?.length) {
-            await supabase.from('answers').delete().in('session_id', sessions.map((s: any) => s.id));
-          }
-          await Promise.all([
-            supabase.from('sessions').delete().eq('user_id', userId),
-            supabase.from('day_notes').delete().eq('user_id', userId),
-            supabase.from('profiles').delete().eq('user_id', userId),
-          ]);
-          setInsight(''); setInsightShort(''); setTraits(null); setTopic('');
-          setSessionCount(0); setStreakDays(0); setHasSessionToday(false); setDayNote('');
-          setTherapyPreview(''); setWeeklyTraits(null); setTherapyResetTick(t => t + 1);
-          Alert.alert('Done', 'All data wiped.');
-        },
-      },
-    ]);
-  }
+  const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'session', 2: 'vent', 3: 'journal', 4: 'write' };
 
   function handleTabPress(tab: TabId) {
+    track('tab_changed', { tab: TAB_NAMES[tab] ?? tab });
     setActiveTab(tab);
     pagerRef.current?.setPage(tab);
   }
@@ -275,6 +289,7 @@ export default function App() {
           <StatusBar style="light" translucent />
           <OnboardingScreen
             onComplete={({ name, dob }: { name: string; dob: string }) => {
+              track('onboarding_completed');
               setHoroscopeContext(buildHoroscopeContext(dob));
               setNeedsOnboarding(false);
               setShowWelcome(true);
@@ -291,6 +306,7 @@ export default function App() {
         <SafeAreaProvider>
           <StatusBar style="light" translucent />
           <WelcomeScreen onDone={() => {
+            track('welcome_screen_dismissed');
             AsyncStorage.setItem(STORAGE_KEY_HAS_SEEN_WELCOME, '1');
             setShowWelcome(false);
           }} />
@@ -304,6 +320,7 @@ export default function App() {
       <SafeAreaProvider>
         <StatusBar style="light" translucent />
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          {!isConnected && <OfflineBanner />}
           <PagerView
             ref={pagerRef}
             style={{ flex: 1 }}
@@ -341,8 +358,9 @@ export default function App() {
                 onOpenTalk={() => { setActiveTab(2); pagerRef.current?.setPage(2); }}
                 onOpenJournal={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
                 onOpenAnswers={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
-                onDevWipe={devWipe}
                 userId={userId}
+                isPremium={isPremium}
+                onPremiumStatusChanged={refreshPremiumStatus}
               />
             </View>
 
@@ -359,6 +377,7 @@ export default function App() {
                 micPulseAnim={micPulseAnim}
                 meteringLevelAnim={meteringLevelAnim}
                 ttsEnabled={ttsEnabled}
+                isConnected={isConnected}
                 onSessionComplete={({ answers: _ans, insight: ins, insightShort: insShort, traits: tr, topic: tp, streak, total }) => {
                   const wasFirstToday = !hasSessionToday;
                   const oldStreak = streakDays;
@@ -369,7 +388,7 @@ export default function App() {
                     setShowStreakCelebration(true);
                     runStreakFireAnimation(oldStreak, streak);
                   }
-                  AsyncStorage.getItem('handledTopics')
+                  AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS)
                     .then(val => { try { return val ? JSON.parse(val) : []; } catch { return []; } })
                     .then(ht => loadTherapyPreview(ht))
                     .then(line => setTherapyPreview(line || ''));
@@ -406,6 +425,12 @@ export default function App() {
                 therapyVoiceModeRef={therapyVoiceModeRef}
                 therapyVoiceSubmitRef={therapyVoiceSubmitRef}
                 onTherapyPreviewChange={line => setTherapyPreview(line)}
+                isConnected={isConnected}
+                canUseVent={canUseVent}
+                freeMessagesRemaining={freeMessagesRemaining}
+                isPremium={isPremium}
+                onVentMessageSent={incrementVentMessages}
+                onPremiumStatusChanged={refreshPremiumStatus}
               />
             </View>
 
@@ -429,8 +454,9 @@ export default function App() {
                 topic={topic}
                 streakDays={streakDays}
                 isActive={activeTab === 4}
+                isConnected={isConnected}
+                journalRefreshTick={journalRefreshTick}
                 isRecording={isRecording}
-                isTranscribing={isTranscribing}
                 micPulseAnim={micPulseAnim}
                 meteringLevelAnim={meteringLevelAnim}
                 onStartVoiceRecording={startVoiceRecording}

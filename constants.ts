@@ -6,7 +6,6 @@ export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID!;
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID!;
 export const CLAUDE_MODEL = 'claude-sonnet-4-6';
-export const ANTHROPIC_API_VERSION = '2023-06-01';
 
 // ─── STATIC DATA ──────────────────────────────────────────────────────────────
 export const QUESTIONS: string[] = [
@@ -75,3 +74,13 @@ export const CARD_SIZE = (width - 72) / 2;
 
 
 export const STORAGE_KEY_HAS_SEEN_WELCOME = 'hasSeenWelcome';
+export const STORAGE_KEY_HANDLED_TOPICS = 'handledTopics';
+export const STORAGE_KEY_FLAGGED_TOPICS = 'flaggedTopics';
+export const STORAGE_KEY_VENT_MESSAGES_USED = 'ventMessagesUsed';
+
+export const FREE_VENT_MESSAGE_LIMIT = 5;
+export const REVENUECAT_ENTITLEMENT_ID = 'premium';
+
+// Update these before shipping — required for Apple App Store compliance
+export const PRIVACY_POLICY_URL = 'https://yourapp.com/privacy';
+export const TERMS_URL = 'https://yourapp.com/terms';

@@ -13,10 +13,14 @@ import { QUESTIONS } from '../constants';
 import { callClaude } from '../lib/ai/client';
 import { getTransition, generateInsightAndTraits } from '../lib/api';
 import { saveSession, loadStreakAndCount } from '../lib/supabase';
+import { track } from '../lib/analytics';
 
 // ─── Exported utilities (tested) ─────────────────────────────────────────────
 
 const REQUEUE_KEY = 'requeuedQuestion';
+const FALLBACK_INSIGHT = "Stop waiting for the right moment — it's not coming.";
+const FALLBACK_TOPIC = 'self reflection';
+const FALLBACK_TRAITS: Record<string, number> = { Openness: 60, 'Self-awareness': 50, Avoidance: 40, Ambition: 70, Resilience: 55 };
 
 export async function saveRequeuedQuestion(question: string): Promise<void> {
   await AsyncStorage.setItem(REQUEUE_KEY, question);
@@ -41,6 +45,7 @@ type Props = {
   micPulseAnim: Animated.Value;
   meteringLevelAnim: Animated.Value;
   ttsEnabled: boolean;
+  isConnected?: boolean;
   onSessionComplete: (params: {
     answers: { question: string; answer: string }[];
     insight: string;
@@ -73,7 +78,7 @@ const TONGUE_CONFIGS = [
 
 export function SessionScreen({
   userId, sessionCount, horoscopeContext, topic, traits, isRecording, isTranscribing,
-  micPulseAnim, meteringLevelAnim, ttsEnabled, onSessionComplete, onExit,
+  micPulseAnim, meteringLevelAnim, ttsEnabled, isConnected = true, onSessionComplete, onExit,
   onStartVoiceRecording, onStopVoiceRecording, onStopTTS, onSpeakAndWait, sessionVoiceModeRef,
   sessionVoiceSubmitRef,
 }: Props) {
@@ -126,6 +131,7 @@ export function SessionScreen({
   }
 
   async function beginSession() {
+    track('session_started');
     setView('question');
     if (sessionVoiceModeRef) {
       sessionVoiceModeRef.current = true;
@@ -137,6 +143,7 @@ export function SessionScreen({
 
   async function skipQuestion() {
     if (transitioning) return;
+    track('question_skipped', { questionNumber });
     const next = pregeneratedQuestion || getNextQuestion(usedQuestions);
     setPregeneratedQuestion(null);
     const newUsed = [...usedQuestions, next];
@@ -192,10 +199,10 @@ export function SessionScreen({
       if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
       onStopTTS();
       setView('loading');
-      let insightText = "Stop waiting for the right moment — it's not coming.";
+      let insightText = FALLBACK_INSIGHT;
       let insightShortText = '';
-      let traitsResult: Record<string, number> = { Openness: 60, 'Self-awareness': 50, Avoidance: 40, Ambition: 70, Resilience: 55 };
-      let topicResult = 'self reflection';
+      let traitsResult: Record<string, number> = { ...FALLBACK_TRAITS };
+      let topicResult = FALLBACK_TOPIC;
       try {
         const result = await generateInsightAndTraits(newAllAnswers, horoscopeContext);
         insightText = result.insight;
@@ -319,6 +326,7 @@ export function SessionScreen({
 
   async function handleDone() {
     if (!insight) return;
+    track('session_completed', { streak: celebrationStreak, total: celebrationTotal });
     if (sessionSavedRef.current) {
       onSessionComplete({
         answers: answersRef.current, insight, insightShort,
@@ -507,10 +515,12 @@ export function SessionScreen({
               <View style={styles.voiceArea}>
                 <TouchableOpacity
                   onPress={() => {
+                    if (!isConnected) return;
                     if (isRecording) onStopVoiceRecording(setInput);
                     else onStartVoiceRecording(setInput);
                   }}
-                  activeOpacity={0.6}
+                  activeOpacity={isConnected ? 0.6 : 1}
+                  style={{ opacity: isConnected ? 1 : 0.3 }}
                 >
                   <Animated.View style={[styles.micRing, { borderColor: isRecording ? 'rgba(180,140,90,0.5)' : colors.border, transform: [{ scale: micPulseAnim }] }]}>
                     <Animated.View style={[styles.micDot, { backgroundColor: isRecording ? colors.accent : '#2a2822', transform: [{ scale: meteringLevelAnim }] }]} />
