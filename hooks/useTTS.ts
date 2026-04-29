@@ -2,7 +2,8 @@ import { useState, useRef } from 'react';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Speech from 'expo-speech';
-import { ELEVENLABS_KEY, ELEVENLABS_VOICE_ID } from '../constants';
+import { SUPABASE_URL } from '../constants';
+import { getAccessToken } from '../lib/auth';
 
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -30,13 +31,16 @@ export function useTTS() {
         playsInSilentModeIOS: true,
         defaultToSpeakerphone: true,
       });
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+      const token = await getAccessToken();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-proxy`, {
         method: 'POST',
-        headers: { 'xi-api-key': ELEVENLABS_KEY, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           text,
-          model_id: 'eleven_turbo_v2_5',
-          voice_settings: { stability: 0.9, similarity_boost: 0.6, style: 0, use_speaker_boost: false },
+          stability: 0.9,
+          similarity_boost: 0.6,
+          style: 0,
+          use_speaker_boost: false,
         }),
       });
       if (!res.ok) { setIsSpeaking(false); return; }
