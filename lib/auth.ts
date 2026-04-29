@@ -15,6 +15,12 @@ export async function signOut(): Promise<void> {
   _userId = null;
 }
 
+export async function getAccessToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Not authenticated');
+  return session.access_token;
+}
+
 type Profile = { name: string; dob: string } | null;
 type AuthResult = { userId: string | null; profile: Profile };
 
