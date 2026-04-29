@@ -1,11 +1,15 @@
 import { ANTHROPIC_KEY, CLAUDE_MODEL, ANTHROPIC_API_VERSION } from '../../constants';
 
+function sanitizeInput(text: string, maxChars = 2000): string {
+  return text.replace(/\0/g, '').slice(0, maxChars);
+}
+
 export async function callClaude(
   prompt: string,
   maxTokens: number,
   system?: string
 ): Promise<string> {
-  const messages = [{ role: 'user' as const, content: prompt }];
+  const messages = [{ role: 'user' as const, content: sanitizeInput(prompt) }];
   const body: Record<string, unknown> = {
     model: CLAUDE_MODEL,
     max_tokens: maxTokens,
@@ -33,6 +37,7 @@ export async function callClaudeChat(
   messages: { role: 'user' | 'assistant'; content: string }[],
   maxTokens: number
 ): Promise<string> {
+  const safeMessages = messages.map(m => ({ ...m, content: sanitizeInput(m.content) }));
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -40,7 +45,7 @@ export async function callClaudeChat(
       'x-api-key': ANTHROPIC_KEY,
       'anthropic-version': ANTHROPIC_API_VERSION,
     },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, system, messages }),
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, system, messages: safeMessages }),
   });
   if (!res.ok) throw new Error(`Claude API error ${res.status}`);
   const data = await res.json();
