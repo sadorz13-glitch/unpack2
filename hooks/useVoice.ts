@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Platform, Animated } from 'react-native';
 import { Audio } from 'expo-av';
-import { OPENAI_KEY } from '../constants';
+import { SUPABASE_URL } from '../constants';
+import { getAccessToken } from '../lib/auth';
 
 export function useVoice() {
   const [isRecording, setIsRecording] = useState(false);
@@ -114,9 +115,10 @@ export function useVoice() {
       formData.append('model', 'whisper-1');
       formData.append('language', 'en');
 
-      const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      const token = await getAccessToken();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-proxy`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${OPENAI_KEY}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
