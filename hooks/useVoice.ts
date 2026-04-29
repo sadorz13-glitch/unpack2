@@ -122,7 +122,6 @@ export function useVoice() {
 
       setIsTranscribing(false);
       if (!res.ok) {
-        console.log('[voice] whisper error:', res.status);
         return;
       }
       const data = await res.json();
@@ -136,7 +135,6 @@ export function useVoice() {
         }
       }
     } catch (e) {
-      console.log('[voice] caught error:', (e as any).message);
       setIsRecording(false);
       setIsTranscribing(false);
       Audio.setAudioModeAsync({
