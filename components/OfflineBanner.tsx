@@ -4,7 +4,7 @@ import { View, Text, StyleSheet } from 'react-native';
 export function OfflineBanner() {
   return (
     <View style={styles.banner}>
-      <Text style={styles.text}>No internet — journal saves will sync when you're back online</Text>
+      <Text style={styles.text}>No internet connection.</Text>
     </View>
   );
 }

@@ -77,6 +77,8 @@ export const STORAGE_KEY_HAS_SEEN_WELCOME = 'hasSeenWelcome';
 export const STORAGE_KEY_HANDLED_TOPICS = 'handledTopics';
 export const STORAGE_KEY_FLAGGED_TOPICS = 'flaggedTopics';
 export const STORAGE_KEY_VENT_MESSAGES_USED = 'ventMessagesUsed';
+export const STORAGE_KEY_HOME_CACHE = 'homeCache';
+export const STORAGE_KEY_PENDING_SESSION = 'pendingSession';
 
 export const FREE_VENT_MESSAGE_LIMIT = 5;
 export const REVENUECAT_ENTITLEMENT_ID = 'premium';

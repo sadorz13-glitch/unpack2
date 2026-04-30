@@ -4,12 +4,22 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Path } from 'react-native-svg';
 import { BlurCard } from '../components/BlurCard';
 import { MiniRadar } from '../components/Radar';
 import { ShimmerTile } from '../components/ShimmerTile';
 import { PaywallScreen } from './PaywallScreen';
 import { colors, spacing, fontFamilies, CARD_SIZE } from '../theme';
 import { TRAITS } from '../constants';
+
+function GearIcon({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke={color} strokeWidth={1.5} />
+      <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke={color} strokeWidth={1.5} />
+    </Svg>
+  );
+}
 
 type Props = {
   streakDays: number;
@@ -33,6 +43,7 @@ type Props = {
   onOpenTalk: () => void;
   onOpenJournal: () => void;
   onOpenAnswers: () => void;
+  onOpenSettings: () => void;
   userId: string | null;
   isPremium?: boolean;
   onPremiumStatusChanged?: () => Promise<void>;
@@ -43,7 +54,7 @@ export function HomeScreen({
   insight, insightShort, traits, weeklyTraits, topic, therapyPreview, dayNote,
   freshSession, streakDisplayValue, showFireEmoji, fireFloatAnim, fireOpacityAnim,
   streakScaleAnim, onStartSession, onOpenTalk, onOpenJournal,
-  onOpenAnswers, userId, isPremium = false, onPremiumStatusChanged,
+  onOpenAnswers, onOpenSettings, userId, isPremium = false, onPremiumStatusChanged,
 }: Props) {
   const insets = useSafeAreaInsets();
   const topTrait = traits ? TRAITS.reduce((a: string, b: string) => ((traits[a] ?? 0) > (traits[b] ?? 0) ? a : b)) : null;
@@ -58,9 +69,14 @@ export function HomeScreen({
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.tabTitle}>Home</Text>
-          <Text style={styles.headerDate}>
-            {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()}
-          </Text>
+          <View style={styles.headerRight}>
+            <Text style={styles.headerDate}>
+              {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()}
+            </Text>
+            <TouchableOpacity onPress={onOpenSettings} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <GearIcon color={colors.accent} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Start Session CTA */}
@@ -224,6 +240,11 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: colors.accent,
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.base,
   },
   headerDate: {
     color: colors.textMuted,

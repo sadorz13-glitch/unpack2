@@ -11,6 +11,7 @@ import { colors, spacing, fontFamilies, SCREEN_WIDTH } from '../theme';
 import { supabase, loadAllAnswers } from '../lib/supabase';
 import { loadDayNote, loadCalendarMonth } from '../lib/calendarHelpers';
 import { saveJournalEntry, loadJournalEntries } from '../lib/journalHelpers';
+import { addPendingEntry } from '../lib/offlineQueue';
 import { track } from '../lib/analytics';
 
 // Module-level constant so StyleSheet can reference it
@@ -22,12 +23,13 @@ type Props = {
   dayNote: string;
   onDayNoteChange: (note: string) => void;
   isActive?: boolean;
+  isConnected?: boolean;
 };
 
 type CalendarSession = { id: string; insight: string; topic: string; hasNote?: boolean };
 type SelectedDay = { date: string; session: CalendarSession | null; answers: any[] | null; dayNote: string };
 
-export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, isActive }: Props) {
+export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, isActive, isConnected = true }: Props) {
   const insets = useSafeAreaInsets();
   const today = new Date().toLocaleDateString('en-CA');
   const [calendarMonth, setCalendarMonth] = useState(new Date());
@@ -93,6 +95,15 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
   async function saveEntry() {
     if (!currentEntry.trim()) return;
     const timeLabel = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    if (!isConnected) {
+      await addPendingEntry(today, currentEntry.trim(), timeLabel);
+      setJournalEntries(prev => [...prev, { id: `pending-${Date.now()}`, note: currentEntry.trim(), time_label: timeLabel, saved: true }]);
+      onDayNoteChange(currentEntry.trim());
+      setCurrentEntry('');
+      setNoteSaved(true);
+      setTimeout(() => setNoteSaved(false), 2000);
+      return;
+    }
     await saveJournalEntry(today, currentEntry.trim(), timeLabel);
     const entries = await loadJournalEntries(today);
     setJournalEntries(entries.map((e: any) => ({ ...e, saved: true })));

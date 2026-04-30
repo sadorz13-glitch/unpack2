@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { BlurCard } from '../components/BlurCard';
 import { colors, spacing, fontFamilies } from '../theme';
-import { QUESTIONS } from '../constants';
+import { QUESTIONS, STORAGE_KEY_PENDING_SESSION } from '../constants';
 import { callClaude } from '../lib/ai/client';
 import { getTransition, generateInsightAndTraits } from '../lib/api';
 import { saveSession, loadStreakAndCount } from '../lib/supabase';
@@ -219,11 +219,20 @@ export function SessionScreen({
       let totalVal = 0;
       try {
         await saveSession(newAllAnswers, insightText, traitsResult, topicResult, insightShortText);
+        await AsyncStorage.removeItem(STORAGE_KEY_PENDING_SESSION);
         const { streak, total } = await loadStreakAndCount(true);
         streakVal = streak;
         totalVal = total;
         sessionSavedRef.current = true;
-      } catch { /* streak stays 0, session unsaved — handleDone will retry */ }
+      } catch {
+        await AsyncStorage.setItem(STORAGE_KEY_PENDING_SESSION, JSON.stringify({
+          answers: newAllAnswers,
+          insight: insightText,
+          insightShort: insightShortText,
+          traits: traitsResult,
+          topic: topicResult,
+        })).catch(() => {});
+      }
       setCelebrationStreak(streakVal);
       setCelebrationTotal(totalVal);
       setView('celebrate');
@@ -387,9 +396,15 @@ export function SessionScreen({
             {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}
           </Text>
         </View>
-        <TouchableOpacity style={styles.beginBtn} onPress={beginSession}>
+        <TouchableOpacity
+          style={[styles.beginBtn, !isConnected && styles.beginBtnDisabled]}
+          onPress={isConnected ? beginSession : undefined}
+        >
           <Text style={styles.beginBtnText}>BEGIN SESSION</Text>
         </TouchableOpacity>
+        {!isConnected && (
+          <Text style={styles.offlineHint}>No internet — sessions require a connection.</Text>
+        )}
       </View>
     );
   }
@@ -607,7 +622,9 @@ const styles = StyleSheet.create({
   entryHeading: { fontFamily: fontFamilies.serifItalic, fontSize: 28, color: colors.textPrimary, textAlign: 'center' },
   entrySub: { color: colors.textGhost, fontSize: 9, letterSpacing: 4 },
   beginBtn: { borderWidth: 1, borderColor: 'rgba(180,140,90,0.4)', borderRadius: 2, paddingVertical: spacing.base, paddingHorizontal: spacing.xxl, alignItems: 'center' },
+  beginBtnDisabled: { opacity: 0.3 },
   beginBtnText: { color: colors.accent, fontSize: 11, letterSpacing: 6 },
+  offlineHint: { color: colors.textMuted, fontSize: 11, letterSpacing: 0.3, marginTop: spacing.md, textAlign: 'center' },
   // Skip question
   skipBtn: { marginTop: spacing.xl, paddingVertical: spacing.md, alignSelf: 'center' },
   skipText: { color: 'rgba(107,101,96,0.35)', fontSize: 10, letterSpacing: 1, textAlign: 'center' },

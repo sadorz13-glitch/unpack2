@@ -77,3 +77,10 @@ export async function saveProfile(name: string, dob: string): Promise<void> {
   if (!_userId) throw new Error('Not authenticated');
   await supabase.from('profiles').upsert({ user_id: _userId, name, dob });
 }
+
+export async function deleteAccount(): Promise<void> {
+  const { error } = await supabase.functions.invoke('delete-account');
+  if (error) throw new Error(error.message);
+  await supabase.auth.signOut();
+  _userId = null;
+}

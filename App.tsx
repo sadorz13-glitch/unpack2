@@ -12,9 +12,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 
-import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS } from './constants';
-import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession } from './lib/supabase';
-import { initAuth, buildHoroscopeContext, setAuthUser } from './lib/auth';
+import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION } from './constants';
+import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession } from './lib/supabase';
+import { initAuth, buildHoroscopeContext, setAuthUser, signOut, deleteAccount, getUserId } from './lib/auth';
 import { track, identifyUser, resetAnalytics } from './lib/analytics';
 import { initIAP, loginIAP, logoutIAP } from './lib/iap';
 import { useSubscription } from './hooks/useSubscription';
@@ -22,6 +22,7 @@ import { requestNotificationPermissions, scheduleDailyReminder, scheduleStreakRe
 import { loadTherapyPreview } from './lib/ai/therapy';
 import { loadJournalEntries } from './lib/journalHelpers';
 import { AuthScreen } from './screens/AuthScreen';
+import { SettingsSheet } from './components/SettingsSheet';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { BottomTabBar, TabId } from './components/BottomTabBar';
 import { HomeScreen } from './screens/HomeScreen';
@@ -61,6 +62,7 @@ export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
   const [horoscopeContext, setHoroscopeContext] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // ── Navigation ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>(0);
@@ -155,10 +157,25 @@ export default function App() {
     }
   }, []);
 
+  async function retryPendingSession() {
+    const uid = getUserId();
+    if (!uid) return;
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEY_PENDING_SESSION);
+      if (!raw) return;
+      const pending = JSON.parse(raw);
+      await saveSession(pending.answers, pending.insight, pending.traits, pending.topic, pending.insightShort || '');
+      await AsyncStorage.removeItem(STORAGE_KEY_PENDING_SESSION);
+      const { streak, total } = await loadStreakAndCount(false);
+      setStreakDays(streak); setSessionCount(total); setSessionCountLoaded(true);
+    } catch { /* keep in storage for next retry */ }
+  }
+
   // Flush queued journal writes when connectivity is restored
   useEffect(() => {
     if (isConnected && !prevConnectedRef.current) {
       flushPendingEntries().then(() => setJournalRefreshTick(t => t + 1));
+      retryPendingSession();
     }
     prevConnectedRef.current = isConnected;
   }, [isConnected]);
@@ -216,11 +233,27 @@ export default function App() {
   useEffect(() => {
     if (!authReady || needsOnboarding) return;
 
+    // Show cached home data immediately while network loads
+    AsyncStorage.getItem(STORAGE_KEY_HOME_CACHE).then(raw => {
+      if (!raw) return;
+      try {
+        const cache = JSON.parse(raw);
+        if (cache.streakDays !== undefined) { setStreakDays(cache.streakDays); setSessionCount(cache.sessionCount); setSessionCountLoaded(true); }
+        if (cache.insight !== undefined) { setInsight(cache.insight); setInsightShort(cache.insightShort || ''); setTraits(cache.traits || null); setTopic(cache.topic || ''); }
+      } catch { /* ignore corrupt cache */ }
+    });
+
+    retryPendingSession();
+
     loadStreakAndCount(false).then(({ streak, total }) => {
       setStreakDays(streak);
       setSessionCount(total);
       setSessionCountLoaded(true);
       if (total === 0) setTherapyPreview('');
+      AsyncStorage.getItem(STORAGE_KEY_HOME_CACHE)
+        .then(raw => { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } })
+        .then(cache => AsyncStorage.setItem(STORAGE_KEY_HOME_CACHE, JSON.stringify({ ...cache, streakDays: streak, sessionCount: total })))
+        .catch(() => {});
     });
 
     const todayStr = new Date().toLocaleDateString('en-CA');
@@ -253,9 +286,29 @@ export default function App() {
         setInsightShort(last.insight_short || '');
         setTraits(last.traits || null);
         setTopic(last.topic || '');
+        AsyncStorage.getItem(STORAGE_KEY_HOME_CACHE)
+          .then(raw => { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } })
+          .then(cache => AsyncStorage.setItem(STORAGE_KEY_HOME_CACHE, JSON.stringify({ ...cache, insight: last.insight || '', insightShort: last.insight_short || '', traits: last.traits || null, topic: last.topic || '' })))
+          .catch(() => {});
       }
     });
   }, [authReady, needsOnboarding]);
+
+  async function handleSignOut() {
+    setShowSettings(false);
+    await signOut();
+  }
+
+  async function handleDeleteAccount(): Promise<void> {
+    await deleteAccount();
+    await AsyncStorage.multiRemove([
+      STORAGE_KEY_HAS_SEEN_WELCOME,
+      STORAGE_KEY_HANDLED_TOPICS,
+      STORAGE_KEY_FLAGGED_TOPICS,
+      STORAGE_KEY_VENT_MESSAGES_USED,
+    ]);
+    setShowSettings(false);
+  }
 
   const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'session', 2: 'vent', 3: 'journal', 4: 'write' };
 
@@ -358,6 +411,7 @@ export default function App() {
                 onOpenTalk={() => { setActiveTab(2); pagerRef.current?.setPage(2); }}
                 onOpenJournal={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
                 onOpenAnswers={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
+                onOpenSettings={() => setShowSettings(true)}
                 userId={userId}
                 isPremium={isPremium}
                 onPremiumStatusChanged={refreshPremiumStatus}
@@ -442,6 +496,7 @@ export default function App() {
                 dayNote={dayNote}
                 onDayNoteChange={setDayNote}
                 isActive={activeTab === 3}
+                isConnected={isConnected}
               />
             </View>
 
@@ -468,6 +523,12 @@ export default function App() {
 
           <BottomTabBar activeTab={activeTab} onTabPress={handleTabPress} />
         </View>
+        <SettingsSheet
+          visible={showSettings}
+          onClose={() => setShowSettings(false)}
+          onSignOut={handleSignOut}
+          onDeleteAccount={handleDeleteAccount}
+        />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

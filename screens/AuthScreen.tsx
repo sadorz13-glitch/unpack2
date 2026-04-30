@@ -8,6 +8,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 import { colors, spacing, fontFamilies } from '../theme';
 import { GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID } from '../constants';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
 GoogleSignin.configure({
   webClientId: GOOGLE_WEB_CLIENT_ID,
@@ -18,8 +19,10 @@ GoogleSignin.configure({
 export function AuthScreen() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState<'apple' | 'google' | null>(null);
+  const { isConnected } = useNetworkStatus();
 
   async function handleApple() {
+    if (!isConnected) return;
     setLoading('apple');
     try {
       const credential = await AppleAuthentication.signInAsync({
@@ -43,6 +46,7 @@ export function AuthScreen() {
   }
 
   async function handleGoogle() {
+    if (!isConnected) return;
     setLoading('google');
     try {
       await GoogleSignin.hasPlayServices();
@@ -69,6 +73,9 @@ export function AuthScreen() {
       </View>
 
       <View style={styles.buttons}>
+        {!isConnected && (
+          <Text style={styles.offlineText}>No internet connection.</Text>
+        )}
         {loading === 'apple' ? (
           <ActivityIndicator color={colors.accent} style={styles.loader} />
         ) : (
@@ -151,5 +158,12 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.4,
+  },
+  offlineText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    letterSpacing: 0.3,
+    marginBottom: spacing.sm,
   },
 });

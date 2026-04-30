@@ -292,13 +292,19 @@ export function TalkScreen({
         keyboardShouldPersistTaps="handled"
       >
         {!sessionStarted ? (
-          <TouchableOpacity onPress={handleStartTalking} activeOpacity={0.7} style={styles.starterBubble}>
+          <TouchableOpacity
+            onPress={isConnected ? handleStartTalking : undefined}
+            activeOpacity={isConnected ? 0.7 : 1}
+            style={[styles.starterBubble, !isConnected && { opacity: 0.5 }]}
+          >
             <BlurCard intensity={18} style={styles.msgBubble}>
               <Text style={[styles.msgText, styles.msgTextAI]}>
                 {therapyPreview || "hey, let's have a chat.\nwhat's on your mind?"}
               </Text>
             </BlurCard>
-            <Text style={styles.starterHint}>TAP TO RESPOND</Text>
+            <Text style={styles.starterHint}>
+              {isConnected ? 'TAP TO RESPOND' : 'NO INTERNET CONNECTION'}
+            </Text>
           </TouchableOpacity>
         ) : (
           <>
