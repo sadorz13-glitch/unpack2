@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native';
 import { callClaude } from './client';
 import { QAPair, SessionResult } from '../../types';
 
@@ -34,6 +35,11 @@ export async function generateInsightAndTraits(
     `Respond in this exact JSON format only, no markdown:\n` +
     `{\n  "insight": "your insight sentence here",\n  "insightShort": "casual 5 word version with emoji",\n  "traits": {\n    "Openness": 75,\n    "Self-awareness": 60,\n    "Avoidance": 45,\n    "Ambition": 80,\n    "Resilience": 55\n  },\n  "topic": "main theme here"\n}`;
 
-  const raw = await callClaude(prompt, 300);
-  return JSON.parse(raw.replace(/```json|```/g, '').trim()) as SessionResult;
+  try {
+    const raw = await callClaude(prompt, 300);
+    return JSON.parse(raw.replace(/```json|```/g, '').trim()) as SessionResult;
+  } catch (e) {
+    Sentry.captureException(e);
+    throw e;
+  }
 }

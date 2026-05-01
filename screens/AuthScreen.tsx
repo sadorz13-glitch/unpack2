@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as Sentry from '@sentry/react-native';
 import {
   View, Text, StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
@@ -38,6 +39,7 @@ export function AuthScreen() {
       if (error) Alert.alert('Sign in failed', error.message);
     } catch (e: any) {
       if (e.code !== 'ERR_REQUEST_CANCELED') {
+        Sentry.captureException(e);
         Alert.alert('Sign in failed', e.message);
       }
     } finally {
@@ -58,6 +60,7 @@ export function AuthScreen() {
       });
       if (error) Alert.alert('Sign in failed', error.message);
     } catch (e: any) {
+      Sentry.captureException(e);
       Alert.alert('Sign in failed', e.message);
     } finally {
       setLoading(null);

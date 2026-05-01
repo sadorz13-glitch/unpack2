@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native';
 import { SUPABASE_URL, CLAUDE_MODEL } from '../../constants';
 import { getAccessToken } from '../auth';
 
@@ -27,7 +28,11 @@ export async function callClaude(
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) throw new Error(`Claude proxy error ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`Claude proxy error ${res.status}`);
+    Sentry.captureException(err);
+    throw err;
+  }
   const data = await res.json();
   return data.content[0].text.trim();
 }
@@ -48,7 +53,11 @@ export async function callClaudeChat(
     },
     body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, system, messages: safeMessages }),
   });
-  if (!res.ok) throw new Error(`Claude proxy error ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`Claude proxy error ${res.status}`);
+    Sentry.captureException(err);
+    throw err;
+  }
   const data = await res.json();
   return data.content[0].text.trim();
 }
