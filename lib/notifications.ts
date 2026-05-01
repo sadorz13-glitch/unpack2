@@ -1,4 +1,5 @@
-﻿import * as Notifications from 'expo-notifications';
+﻿import * as Sentry from '@sentry/react-native';
+import * as Notifications from 'expo-notifications';
 
 export async function requestNotificationPermissions(): Promise<boolean> {
   const { status } = await Notifications.requestPermissionsAsync();
@@ -49,5 +50,7 @@ export async function scheduleStreakReminders(hasStreakToday: boolean): Promise<
       content: { title: 'unpack', body: "it's getting late. keep your streak alive." },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: late },
     });
-  } catch {}
+  } catch (e) {
+    Sentry.addBreadcrumb({ category: 'notifications', message: 'Failed to schedule streak reminders', level: 'warning' });
+  }
 }

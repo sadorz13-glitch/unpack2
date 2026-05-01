@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Sentry from '@sentry/react-native';
 import { saveJournalEntry } from './journalHelpers';
 
 const QUEUE_KEY = 'offlineJournalQueue';
@@ -9,7 +10,8 @@ async function getQueue(): Promise<PendingEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(QUEUE_KEY);
     return raw ? JSON.parse(raw) : [];
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e);
     return [];
   }
 }

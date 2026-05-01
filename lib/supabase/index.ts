@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import { TRAITS } from '../../constants';
 import { getUserId } from '../auth';
 import { supabase } from './client';
@@ -106,7 +107,8 @@ export async function loadStreakAndCount(
     }
 
     return { streak, total: totalCount };
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e);
     return { streak: 0, total: 0 };
   }
 }
@@ -154,7 +156,8 @@ export async function loadAllAnswers(): Promise<any[]> {
       }
       return { date: dateKey, sessionId: s.id, isToday, label, items };
     });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e);
     return [];
   }
 }
@@ -191,7 +194,8 @@ export async function loadWeeklyTraits(): Promise<Record<string, number> | null>
           : 0;
     });
     return averaged;
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e);
     return null;
   }
 }
@@ -206,7 +210,8 @@ export async function loadLastSession(): Promise<any> {
       .limit(1)
       .single();
     return data;
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e);
     return null;
   }
 }
