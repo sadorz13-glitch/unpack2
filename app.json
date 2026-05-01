@@ -52,6 +52,13 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_REVERSED_IOS_CLIENT_ID"
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "valecrest",
+          "project": "react-native"
+        }
       ]
     ],
     "extra": {
