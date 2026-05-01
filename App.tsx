@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import * as Sentry from '@sentry/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect, useRef } from 'react';
 import {
@@ -184,6 +185,7 @@ export default function App() {
   useEffect(() => {
     initAuth().then(async ({ userId: uid, profile }) => {
       if (uid) {
+        Sentry.setUser({ id: uid });
         identifyUser(uid);
         loginIAP(uid).catch(() => {});
       }
@@ -205,6 +207,7 @@ export default function App() {
         const uid = session.user.id;
         setAuthUser(uid);
         setUserId(uid);
+        Sentry.setUser({ id: uid });
         identifyUser(uid);
         loginIAP(uid).catch(() => {});
         const { data: profile } = await supabase
@@ -221,6 +224,7 @@ export default function App() {
       } else {
         setAuthUser(null);
         setUserId(null);
+        Sentry.setUser(null);
         resetAnalytics();
         logoutIAP();
       }
@@ -389,6 +393,7 @@ export default function App() {
           >
             {/* Tab 0: Home */}
             <View key="0" style={{ flex: 1 }}>
+              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <HomeScreen
                 streakDays={streakDays}
                 sessionCount={sessionCount}
@@ -416,10 +421,12 @@ export default function App() {
                 isPremium={isPremium}
                 onPremiumStatusChanged={refreshPremiumStatus}
               />
+              </Sentry.ErrorBoundary>
             </View>
 
             {/* Tab 1: Session */}
             <View key="1" style={{ flex: 1 }}>
+              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <SessionScreen
                 userId={userId}
                 sessionCount={sessionCount}
@@ -457,10 +464,12 @@ export default function App() {
                 sessionVoiceModeRef={sessionVoiceModeRef}
                 sessionVoiceSubmitRef={sessionVoiceSubmitRef}
               />
+              </Sentry.ErrorBoundary>
             </View>
 
             {/* Tab 2: Talk */}
             <View key="2" style={{ flex: 1 }}>
+              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <TalkScreen
                 horoscopeContext={horoscopeContext}
                 ttsEnabled={ttsEnabled}
@@ -486,10 +495,12 @@ export default function App() {
                 onVentMessageSent={incrementVentMessages}
                 onPremiumStatusChanged={refreshPremiumStatus}
               />
+              </Sentry.ErrorBoundary>
             </View>
 
             {/* Tab 3: Journal */}
             <View key="3" style={{ flex: 1 }}>
+              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <JournalScreen
                 userId={userId}
                 sessionCount={sessionCount}
@@ -498,10 +509,12 @@ export default function App() {
                 isActive={activeTab === 3}
                 isConnected={isConnected}
               />
+              </Sentry.ErrorBoundary>
             </View>
 
             {/* Tab 4: Write */}
             <View key="4" style={{ flex: 1 }}>
+              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <WritingScreen
                 userId={userId ?? ''}
                 horoscopeContext={horoscopeContext}
@@ -518,6 +531,7 @@ export default function App() {
                 onStopVoiceRecording={stopVoiceRecording}
                 writingVoiceModeRef={writingVoiceModeRef}
               />
+              </Sentry.ErrorBoundary>
             </View>
           </PagerView>
 
