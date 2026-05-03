@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect, useRef } from 'react';
 import {
-  View, BackHandler, Platform,
+  View, BackHandler, Platform, Alert,
 } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useFonts, DMSerifDisplay_400Regular, DMSerifDisplay_400Regular_Italic } from '@expo-google-fonts/dm-serif-display';
@@ -63,6 +63,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const isDevBypassRef = useRef(false);
   const [horoscopeContext, setHoroscopeContext] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -221,8 +222,14 @@ export default function App() {
         const { data: profile } = await supabase
           .from('profiles').select('name, dob').eq('user_id', uid).maybeSingle();
         if (!profile) {
-          setNeedsOnboarding(true);
-          if (event === 'SIGNED_IN') track('sign_up');
+          if (__DEV__ && isDevBypassRef.current) {
+            isDevBypassRef.current = false;
+            await supabase.from('profiles').upsert({ user_id: uid, name: 'Dev User', dob: '1995-06-15' });
+            setHoroscopeContext(buildHoroscopeContext('1995-06-15'));
+          } else {
+            setNeedsOnboarding(true);
+            if (event === 'SIGNED_IN') track('sign_up');
+          }
         } else {
           setHoroscopeContext(buildHoroscopeContext(profile.dob));
           const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
@@ -391,7 +398,7 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <StatusBar style="light" translucent />
-          <AuthScreen />
+          <AuthScreen onDevBypass={__DEV__ ? async () => { isDevBypassRef.current = true; const { error } = await supabase.auth.signInAnonymously(); if (error) { isDevBypassRef.current = false; Alert.alert('Dev bypass failed', error.message); } } : undefined} />
         </SafeAreaProvider>
       </GestureHandlerRootView>
     );

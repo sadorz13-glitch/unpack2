@@ -13,4 +13,4 @@ if (!__DEV__) {
   });
 }
 
-registerRootComponent(Sentry.wrap(App));
+registerRootComponent(__DEV__ ? App : Sentry.wrap(App));

@@ -5,19 +5,26 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 import { colors, spacing, fontFamilies } from '../theme';
 import { GOOGLE_WEB_CLIENT_ID, GOOGLE_IOS_CLIENT_ID } from '../constants';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
 
-GoogleSignin.configure({
-  webClientId: GOOGLE_WEB_CLIENT_ID,
-  iosClientId: GOOGLE_IOS_CLIENT_ID,
-  scopes: ['profile', 'email'],
-});
+let GoogleSignin: any = null;
+try {
+  GoogleSignin = require('@react-native-google-signin/google-signin').GoogleSignin;
+  GoogleSignin.configure({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    iosClientId: GOOGLE_IOS_CLIENT_ID,
+    scopes: ['profile', 'email'],
+  });
+} catch {}
 
-export function AuthScreen() {
+interface Props {
+  onDevBypass?: () => void;
+}
+
+export function AuthScreen({ onDevBypass }: Props) {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState<'apple' | 'google' | null>(null);
   const { isConnected } = useNetworkStatus();
@@ -48,7 +55,7 @@ export function AuthScreen() {
   }
 
   async function handleGoogle() {
-    if (!isConnected) return;
+    if (!GoogleSignin || !isConnected) return;
     setLoading('google');
     try {
       await GoogleSignin.hasPlayServices();
@@ -99,6 +106,12 @@ export function AuthScreen() {
             onPress={loading ? undefined : handleGoogle}
           >
             Continue with Google
+          </Text>
+        )}
+
+        {__DEV__ && onDevBypass && (
+          <Text style={styles.devBtn} onPress={onDevBypass}>
+            [DEV] Skip — login as user_1
           </Text>
         )}
       </View>
@@ -168,5 +181,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.3,
     marginBottom: spacing.sm,
+  },
+  devBtn: {
+    color: colors.textGhost,
+    fontSize: 11,
+    textAlign: 'center',
+    paddingVertical: spacing.sm,
+    opacity: 0.5,
   },
 });
