@@ -27,7 +27,7 @@ A journaling app. Tagline: "The new way to journal." Not marketed as a therapy a
 - **Text-to-speech:** ElevenLabs, routed through Supabase Edge Function
 - **Auth:** Supabase Auth — Sign in with Apple + Google Sign-In (passwordless, no email/password)
 - **Analytics:** Mixpanel (EU data region, GDPR-compliant)
-- **Crash reporting:** Sentry (planned, not yet wired)
+- **Crash reporting:** Sentry ✅ (`@sentry/react-native` ^8.10.0, EU region, DSN in `.env`)
 - **Subscriptions:** RevenueCat (planned, blocked on Apple verification)
 - **Domain:** letsunpack.app (purchased on Porkbun, pending ID verification)
 - **Privacy/Terms:** Termly (HTML embed, will live at letsunpack.app/privacy and letsunpack.app/terms)
@@ -45,6 +45,7 @@ A journaling app. Tagline: "The new way to journal." Not marketed as a therapy a
   "expo-apple-authentication": "...",
   "expo-av": "...",
   "expo-notifications": "...",
+  "@sentry/react-native": "^8.10.0",
   "mixpanel-react-native": "...",
   "react-native-purchases": "...",
   "react-native-pager-view": "^6.5.1",
@@ -80,7 +81,8 @@ A journaling app. Tagline: "The new way to journal." Not marketed as a therapy a
       "expo-apple-authentication",
       ["@react-native-google-signin/google-signin", {
         "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_REVERSED_IOS_CLIENT_ID"
-      }]
+      }],
+      "@sentry/react-native/expo"
     ],
     "extra": { "eas": { "projectId": "d2a1e525-0ac7-4148-872a-9dd5a2233871" } },
     "owner": "zute"
@@ -102,6 +104,7 @@ All secrets live in either `.env` (client-side, gitignored) or Supabase Edge Fun
 EXPO_PUBLIC_SUPABASE_URL=...
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
 EXPO_PUBLIC_MIXPANEL_TOKEN=...           ← added, EU region token
+EXPO_PUBLIC_SENTRY_DSN=...              ← added, EU region DSN (ingest.de.sentry.io)
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=...     ← placeholder, not yet filled
 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=...     ← placeholder, blocked on Apple verification
 EXPO_PUBLIC_REVENUECAT_IOS_KEY=...       ← placeholder, blocked on Apple verification
@@ -312,10 +315,17 @@ Done as part of pre-launch hardening (commits from 2026-04-19 to 2026-04-30):
 - Planned entitlement: `premium` (Talk It Out unlimited, voice AI analysis, Weekly Wheel)
 - Paywall placement: wired into onboarding flow
 
-### Sentry (crash reporting) — ACCOUNT CREATED, NOT YET WIRED ⏳
-- Account created: Valecrest org, EU region, React Native project
-- DSN saved separately (not committed to repo)
-- Integration not yet added to the app — `@sentry/react-native` not installed
+### Sentry (crash reporting) — ✅ FULLY INTEGRATED
+- Account: Valecrest org, EU region (`ingest.de.sentry.io`)
+- `@sentry/react-native` ^8.10.0 installed; Expo config plugin in `app.json`
+- Init in `index.ts` before `registerRootComponent` — wraps `App` via `Sentry.wrap()`
+- 10% trace sampling; Session Replay **disabled** (sensitive mental health content)
+- `Sentry.setUser()` called on auth state changes in `App.tsx`
+- Screen-level `<Sentry.ErrorBoundary>` wraps each PagerView tab screen
+- `captureException` in: `callClaude`, `callClaudeChat`, `generateInsightAndTraits`, Apple/Google auth catch blocks, all Supabase data functions, `offlineQueue`, `journalHelpers`
+- Breadcrumb (not captureException) in `notifications.ts` — non-critical
+- `EXPO_PUBLIC_SENTRY_DSN` in `.env` (DSN is not a secret — safe to bundle)
+- `SENTRY_AUTH_TOKEN` should go in EAS Secrets for sourcemap upload at build time — **not yet added**
 
 ---
 
@@ -409,7 +419,8 @@ components/
 - Paywall in onboarding flow (RevenueCat logic wired, not yet live)
 - Dev wipe button — on HomeScreen (bottom right, faint) and AuthScreen; clears all data
 - Account deletion — Settings gear on HomeScreen → SettingsSheet → "Delete account" → warning step → type "DELETE" → wipes all data + auth user
-- Offline handling — all screens degrade gracefully when offline: AuthScreen blocks sign-in, SessionScreen blocks session start, TalkScreen dims starter bubble, JournalScreen queues writes to AsyncStorage, WritingScreen blocks AI. OfflineBanner shown app-wide. Home cache serves stale data while loading. Pending session retries on reconnect.
+- Offline handling — all screens degrade gracefully when offline
+- Sentry crash reporting — init in `index.ts`, screen ErrorBoundaries, captureException across all critical paths, user context tagging on auth: AuthScreen blocks sign-in, SessionScreen blocks session start, TalkScreen dims starter bubble, JournalScreen queues writes to AsyncStorage, WritingScreen blocks AI. OfflineBanner shown app-wide. Home cache serves stale data while loading. Pending session retries on reconnect.
 
 ---
 
@@ -434,6 +445,7 @@ Apple verification was submitted 2026-04-30. Once approved, unlocks:
 | EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in .env | Fill in once iOS client created |
 | RevenueCat setup | Create account → App Store Connect products → RevenueCat dashboard → add EXPO_PUBLIC_REVENUECAT_IOS_KEY |
 | EAS build setup | Needed to test auth (won't work in Expo Go) |
+| Add SENTRY_AUTH_TOKEN to EAS Secrets | For sourcemap upload — `eas secret:create --name SENTRY_AUTH_TOKEN --value <token>`. Generate at sentry.io → Settings → Auth Tokens |
 | app.json name fix | Change "unpack2" → "Unpack" before App Store submission |
 
 ### Not blocked on Apple — can do now
@@ -462,7 +474,7 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 1. ✅ RLS on all tables — done 2026-04-30
 2. ✅ Account deletion — done 2026-04-30
 3. ✅ Offline handling — done 2026-04-30
-4. ❌ Sentry crash reporting — account created, not yet wired into app
+4. ✅ Sentry crash reporting — fully integrated (May 1)
 5. ❌ ElevenLabs TTS audio playback bug (see Known Bugs)
 
 ### Blocked (unblock order: Apple verification → dev build → test auth)
@@ -476,7 +488,7 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 3. ✅ Terms & Conditions drafted (Termly, saved locally)
 4. Get domain live → host policy pages → update PRIVACY_POLICY_URL and TERMS_URL in constants.ts
 5. Set up support@letsunpack.app → add to app UI for data requests
-6. Wire Sentry into app (`@sentry/react-native` install + init with saved DSN)
+6. ✅ Sentry integrated — add `SENTRY_AUTH_TOKEN` to EAS Secrets before first EAS build (sourcemap upload)
 
 ### Post-launch (V2)
 1. Retroactive voice note analysis on upgrade
