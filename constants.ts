@@ -82,6 +82,7 @@ export const STORAGE_KEY_PENDING_SESSION = 'pendingSession';
 
 export const FREE_VENT_MESSAGE_LIMIT = 5;
 export const REVENUECAT_ENTITLEMENT_ID = 'premium';
+export const REVIVAL_PRODUCT_ID = 'com.zute.unpack2.revival';
 
 // Update these before shipping — required for Apple App Store compliance
 export const PRIVACY_POLICY_URL = 'https://TODO_REPLACE_WITH_REAL_URL/privacy';
