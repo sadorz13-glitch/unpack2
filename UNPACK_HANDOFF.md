@@ -4,6 +4,23 @@
 
 ---
 
+## Project Structure (as of 2026-05-03)
+
+All Valecrest projects now live under a single parent directory:
+
+```
+C:\Users\sador\valecrest\
+├── apps/
+│   ├── unpack/     ← this repo (React Native app, formerly unpack2/)
+│   └── groundwork/ ← future app placeholder
+├── agents/         ← Claude agent orchestration workspace (formerly valecrest-agents/)
+└── site/           ← letsunpack.app website (formerly valecrest-agents/letsunpack-site/)
+```
+
+On laptop: same structure under `C:\Users\<username>\valecrest\`. Clone each repo fresh — do not copy from old paths.
+
+---
+
 ## What is Unpack?
 
 A journaling app. Tagline: "The new way to journal." Not marketed as a therapy app — leads with journaling because that market is larger. The AI analysis and therapy features are what surprise and retain users after downloading.
