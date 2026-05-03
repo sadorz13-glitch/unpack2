@@ -55,6 +55,11 @@ export async function loadStreakAndCount(
       .select('date')
       .eq('user_id', uid);
 
+    const { data: revivalData } = await supabase
+      .from('streak_revivals')
+      .select('revived_date')
+      .eq('user_id', uid);
+
     const totalCount = count ?? 0;
 
     const now = new Date();
@@ -66,7 +71,8 @@ export async function loadStreakAndCount(
       ).toLocaleDateString('en-CA')
     );
     const noteDays = (noteData || []).map((n: any) => n.date);
-    let days = [...new Set([...sessionDays, ...noteDays])].sort().reverse();
+    const revivalDays = (revivalData || []).map((r: any) => r.revived_date as string);
+    let days = [...new Set([...sessionDays, ...noteDays, ...revivalDays])].sort().reverse();
 
     if (days.length === 0) {
       return { streak: forceToday ? 1 : 0, total: totalCount };
@@ -214,4 +220,32 @@ export async function loadLastSession(): Promise<any> {
     Sentry.captureException(e);
     return null;
   }
+}
+
+export async function getVentCount(): Promise<number> {
+  const userId = getUserId();
+  if (!userId) return 0;
+  const { data } = await supabase
+    .from('profiles')
+    .select('vent_messages_used')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return data?.vent_messages_used ?? 0;
+}
+
+export async function incrementVentCount(): Promise<number> {
+  const userId = getUserId();
+  if (!userId) return 0;
+  const { data, error } = await supabase.rpc('increment_vent_messages', { user_uuid: userId });
+  if (error) return 0;
+  return data as number;
+}
+
+export async function recordStreakRevival(date: string): Promise<boolean> {
+  const userId = getUserId();
+  if (!userId) return false;
+  const { error } = await supabase
+    .from('streak_revivals')
+    .insert({ user_id: userId, revived_date: date });
+  return !error;
 }

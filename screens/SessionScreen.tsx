@@ -2,12 +2,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Animated, KeyboardAvoidingView, Platform,
+  StyleSheet, ActivityIndicator, Animated, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { BlurCard } from '../components/BlurCard';
+import DeepDiveModal from '../components/DeepDiveModal';
 import { colors, spacing, fontFamilies } from '../theme';
 import { QUESTIONS, STORAGE_KEY_PENDING_SESSION } from '../constants';
 import { callClaude } from '../lib/ai/client';
@@ -99,6 +100,7 @@ export function SessionScreen({
   const [questionNumber, setQuestionNumber] = useState(1);
   const [celebrationStreak, setCelebrationStreak] = useState(0);
   const [celebrationTotal, setCelebrationTotal] = useState(0);
+  const [showDeepDive, setShowDeepDive] = useState(false);
   const sessionSavedRef = useRef(false);
 
   // Flame animation values — created once, reused across celebration triggers
@@ -360,6 +362,16 @@ export function SessionScreen({
     }
   }
 
+  const handleShareInsight = async () => {
+    if (!insight) return;
+    try {
+      await Share.share({ message: insight });
+      track('insight_shared', { insight_length: insight.length });
+    } catch {
+      // user cancelled — do nothing
+    }
+  };
+
   async function handleExit() {
     if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
     onStopTTS();
@@ -483,7 +495,21 @@ export function SessionScreen({
               "{insight}"
             </Text>
           ) : null}
+          {insight ? (
+            <TouchableOpacity style={styles.readMoreBtn} onPress={() => setShowDeepDive(true)}>
+              <Text style={styles.readMoreTxt}>READ MORE</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
+
+        {/* Share insight button */}
+        {insight ? (
+          <View style={{ paddingHorizontal: spacing.lg }}>
+            <TouchableOpacity style={styles.shareBtn} onPress={handleShareInsight}>
+              <Text style={styles.shareBtnText}>SHARE INSIGHT</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Buttons pinned to bottom */}
         <View style={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.lg, gap: spacing.lg }}>
@@ -494,6 +520,13 @@ export function SessionScreen({
             <Text style={styles.ghostText}>I'M DONE FOR NOW</Text>
           </TouchableOpacity>
         </View>
+        <DeepDiveModal
+          visible={showDeepDive}
+          onClose={() => setShowDeepDive(false)}
+          answers={allAnswers}
+          traits={currentTraits ?? {}}
+          recentInsights={[insight].filter(Boolean)}
+        />
       </View>
     );
   }
@@ -654,4 +687,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     marginTop: spacing.base,
   },
+  shareBtn: {
+    borderWidth: 1,
+    borderColor: 'rgba(180,140,90,0.4)',
+    borderRadius: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center' as const,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  shareBtnText: {
+    color: 'rgba(180,140,90,0.9)',
+    fontSize: 11,
+    letterSpacing: 2,
+    fontWeight: '500' as const,
+  },
+  readMoreBtn: { marginTop: 12, alignSelf: 'center' },
+  readMoreTxt: { color: 'rgba(180,140,90,0.6)', fontSize: 10, letterSpacing: 2 },
 });

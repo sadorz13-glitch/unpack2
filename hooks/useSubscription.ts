@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { checkPremiumStatus } from '../lib/iap';
+import { getVentCount, incrementVentCount } from '../lib/supabase';
 import { STORAGE_KEY_VENT_MESSAGES_USED, FREE_VENT_MESSAGE_LIMIT } from '../constants';
 
 export function useSubscription() {
@@ -15,13 +16,22 @@ export function useSubscription() {
         AsyncStorage.getItem(STORAGE_KEY_VENT_MESSAGES_USED),
       ]);
       setIsPremium(isPrem);
-      setVentMessagesUsed(usedStr ? parseInt(usedStr, 10) : 0);
+      const localCount = usedStr ? parseInt(usedStr, 10) : 0;
+      // Seed from server — server is authoritative against reinstall bypass
+      const serverCount = await getVentCount().catch(() => 0);
+      const count = Math.max(serverCount, localCount);
+      setVentMessagesUsed(count);
+      if (serverCount > localCount) {
+        AsyncStorage.setItem(STORAGE_KEY_VENT_MESSAGES_USED, String(serverCount)).catch(() => {});
+      }
       setLoaded(true);
     })();
   }, []);
 
   const incrementVentMessages = useCallback(async () => {
-    const next = ventMessagesUsed + 1;
+    const serverCount = await incrementVentCount().catch(() => 0);
+    // If RPC returned 0 but we already had a count, the call failed — fall back to local increment
+    const next = serverCount > 0 ? serverCount : ventMessagesUsed + 1;
     setVentMessagesUsed(next);
     AsyncStorage.setItem(STORAGE_KEY_VENT_MESSAGES_USED, String(next)).catch(() => {});
   }, [ventMessagesUsed]);

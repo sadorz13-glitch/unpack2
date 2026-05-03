@@ -47,6 +47,8 @@ type Props = {
   userId: string | null;
   isPremium?: boolean;
   onPremiumStatusChanged?: () => Promise<void>;
+  canRevive?: boolean;
+  onReclaimStreak?: () => void;
 };
 
 export function HomeScreen({
@@ -55,6 +57,7 @@ export function HomeScreen({
   freshSession, streakDisplayValue, showFireEmoji, fireFloatAnim, fireOpacityAnim,
   streakScaleAnim, onStartSession, onOpenTalk, onOpenJournal,
   onOpenAnswers, onOpenSettings, userId, isPremium = false, onPremiumStatusChanged,
+  canRevive, onReclaimStreak,
 }: Props) {
   const insets = useSafeAreaInsets();
   const topTrait = traits ? TRAITS.reduce((a: string, b: string) => ((traits[a] ?? 0) > (traits[b] ?? 0) ? a : b)) : null;
@@ -108,6 +111,11 @@ export function HomeScreen({
                   <Text style={styles.sessionCountNumber}>{sessionCount}</Text>
                 </View>
               </View>
+              {canRevive && onReclaimStreak && (
+                <TouchableOpacity onPress={onReclaimStreak} style={styles.reclaimBtn}>
+                  <Text style={styles.reclaimTxt}>RECLAIM</Text>
+                </TouchableOpacity>
+              )}
             </BlurCard>
           </View>
 
@@ -319,4 +327,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -16,
   },
+  reclaimBtn: { marginTop: 6, alignSelf: 'center' },
+  reclaimTxt: { color: 'rgba(180,140,90,0.7)', fontSize: 9, letterSpacing: 2 },
 });

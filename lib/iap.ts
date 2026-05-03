@@ -1,6 +1,6 @@
 import Purchases from 'react-native-purchases';
 import type { PurchasesPackage } from 'react-native-purchases';
-import { REVENUECAT_ENTITLEMENT_ID } from '../constants';
+import { REVENUECAT_ENTITLEMENT_ID, REVIVAL_PRODUCT_ID } from '../constants';
 
 export function initIAP() {
   Purchases.configure({ apiKey: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY! });
@@ -29,4 +29,19 @@ export async function restorePurchases() {
 export async function checkPremiumStatus(): Promise<boolean> {
   const info = await Purchases.getCustomerInfo();
   return !!info.entitlements.active[REVENUECAT_ENTITLEMENT_ID];
+}
+
+export async function purchaseRevival(): Promise<boolean> {
+  try {
+    const offerings = await Purchases.getOfferings();
+    const pkg = offerings.current?.availablePackages.find(
+      p => p.product.identifier === REVIVAL_PRODUCT_ID
+    );
+    if (!pkg) return false;
+    await Purchases.purchasePackage(pkg);
+    return true;
+  } catch (e: any) {
+    if (e?.userCancelled) return false;
+    throw e;
+  }
 }

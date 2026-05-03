@@ -43,3 +43,28 @@ export async function generateInsightAndTraits(
     throw e;
   }
 }
+
+export async function generateDeepDive(
+  answers: Array<{ question: string; answer: string }>,
+  traits: Record<string, number>,
+  recentInsights: string[],
+): Promise<string> {
+  const traitSummary = Object.entries(traits)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k, v]) => `${k} (${Math.round(v)}%)`)
+    .join(', ');
+
+  const pastContext = recentInsights.length > 0
+    ? `Recent themes from your past sessions: ${recentInsights.slice(0, 3).join('; ')}.`
+    : '';
+
+  const prompt = `You are a warm, perceptive therapist-coach. The user just completed a reflection session.\n\nTheir answers:\n${answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n')}\n\nTop traits: ${traitSummary}\n${pastContext}\n\nWrite a 4–6 sentence personalised insight that:\n- Connects their answers to their dominant traits\n- Notes any emotional pattern or recurring theme\n- Ends with one specific, actionable observation\n- Speaks directly to the user (use "you")\n- Tone: warm, honest, non-generic\n\nDo not use bullet points or headers. Plain paragraphs only.`;
+
+  try {
+    return await callClaude(prompt, 400);
+  } catch (e) {
+    Sentry.captureException(e);
+    throw e;
+  }
+}

@@ -13,13 +13,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 
-import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION } from './constants';
-import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession } from './lib/supabase';
+import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION, NOTIF_PREFS_KEY, DEFAULT_NOTIF_HOUR, DEFAULT_NOTIF_MINUTE, REVIVAL_PRODUCT_ID } from './constants';
+import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession, recordStreakRevival } from './lib/supabase';
 import { initAuth, buildHoroscopeContext, setAuthUser, signOut, deleteAccount, getUserId } from './lib/auth';
 import { track, identifyUser, resetAnalytics } from './lib/analytics';
-import { initIAP, loginIAP, logoutIAP } from './lib/iap';
+import { initIAP, loginIAP, logoutIAP, purchaseRevival } from './lib/iap';
+import Purchases from 'react-native-purchases';
+import RevivalModal from './components/RevivalModal';
 import { useSubscription } from './hooks/useSubscription';
-import { requestNotificationPermissions, scheduleDailyReminder, scheduleStreakReminders } from './lib/notifications';
+import { requestNotificationPermissions, scheduleDailyReminder, cancelDailyReminder, scheduleStreakReminders } from './lib/notifications';
 import { loadTherapyPreview } from './lib/ai/therapy';
 import { loadJournalEntries } from './lib/journalHelpers';
 import { AuthScreen } from './screens/AuthScreen';
@@ -64,6 +66,7 @@ export default function App() {
   const [horoscopeContext, setHoroscopeContext] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState({ hour: DEFAULT_NOTIF_HOUR, minute: DEFAULT_NOTIF_MINUTE, enabled: true });
 
   // ── Navigation ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>(0);
@@ -79,6 +82,8 @@ export default function App() {
   // ── Home data ────────────────────────────────────────────────────────────
   const [streakDays, setStreakDays] = useState(0);
   const [sessionCount, setSessionCount] = useState(0);
+  const [showRevival, setShowRevival] = useState(false);
+  const [canRevive, setCanRevive] = useState(false);
   const [sessionCountLoaded, setSessionCountLoaded] = useState(false);
   const [hasSessionToday, setHasSessionToday] = useState(false);
   const [weeklyTraits, setWeeklyTraits] = useState<Record<string, number> | null>(null);
@@ -198,6 +203,9 @@ export default function App() {
         if (!seen) setShowWelcome(true);
       }
       setAuthReady(true);
+      AsyncStorage.getItem(NOTIF_PREFS_KEY).then(val => {
+        if (val) setNotifPrefs(JSON.parse(val));
+      });
       requestNotificationPermissions().then(granted => { if (granted) scheduleDailyReminder(); });
     }).catch(() => setAuthReady(true));
 
@@ -254,6 +262,7 @@ export default function App() {
       setSessionCount(total);
       setSessionCountLoaded(true);
       if (total === 0) setTherapyPreview('');
+      computeCanRevive(streak).catch(() => {});
       AsyncStorage.getItem(STORAGE_KEY_HOME_CACHE)
         .then(raw => { try { return raw ? JSON.parse(raw) : {}; } catch { return {}; } })
         .then(cache => AsyncStorage.setItem(STORAGE_KEY_HOME_CACHE, JSON.stringify({ ...cache, streakDays: streak, sessionCount: total })))
@@ -298,6 +307,44 @@ export default function App() {
     });
   }, [authReady, needsOnboarding]);
 
+  const computeCanRevive = async (currentStreak: number) => {
+    if (currentStreak > 0) { setCanRevive(false); return; }
+    const rcReady = typeof Purchases !== 'undefined';
+    if (!rcReady) { setCanRevive(false); return; }
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toLocaleDateString('en-CA');
+    const uid = getUserId();
+    if (!uid) { setCanRevive(false); return; }
+    const [{ count: sCount }, { count: nCount }, { count: rCount }] = await Promise.all([
+      supabase.from('sessions').select('id', { count: 'exact', head: true })
+        .eq('user_id', uid)
+        .gte('created_at', new Date(yStr + 'T00:00:00').toISOString())
+        .lt('created_at', new Date(yStr + 'T23:59:59').toISOString()),
+      supabase.from('day_notes').select('id', { count: 'exact', head: true })
+        .eq('user_id', uid).eq('date', yStr),
+      supabase.from('streak_revivals').select('id', { count: 'exact', head: true })
+        .eq('user_id', uid).eq('revived_date', yStr),
+    ]);
+    setCanRevive(((sCount ?? 0) + (nCount ?? 0) + (rCount ?? 0)) > 0);
+  };
+
+  const handleStreakRevival = async () => {
+    try {
+      const success = await purchaseRevival();
+      if (!success) return;
+      const today = new Date().toISOString().split('T')[0];
+      await recordStreakRevival(today);
+      setCanRevive(false);
+      const { streak, total } = await loadStreakAndCount(false);
+      setStreakDays(streak);
+      setSessionCount(total);
+      setSessionCountLoaded(true);
+    } catch {
+      // purchase failed — do nothing, RevenueCat shows its own error UI
+    }
+  };
+
   async function handleSignOut() {
     setShowSettings(false);
     await signOut();
@@ -313,6 +360,17 @@ export default function App() {
     ]);
     setShowSettings(false);
   }
+
+  const handleSaveNotifPrefs = async (hour: number, minute: number, enabled: boolean) => {
+    const prefs = { hour, minute, enabled };
+    setNotifPrefs(prefs);
+    await AsyncStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs));
+    if (enabled) {
+      scheduleDailyReminder(hour, minute);
+    } else {
+      cancelDailyReminder();
+    }
+  };
 
   const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'session', 2: 'vent', 3: 'journal', 4: 'write' };
 
@@ -420,6 +478,8 @@ export default function App() {
                 userId={userId}
                 isPremium={isPremium}
                 onPremiumStatusChanged={refreshPremiumStatus}
+                canRevive={canRevive}
+                onReclaimStreak={() => setShowRevival(true)}
               />
               </Sentry.ErrorBoundary>
             </View>
@@ -542,6 +602,15 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onSignOut={handleSignOut}
           onDeleteAccount={handleDeleteAccount}
+          notifHour={notifPrefs.hour}
+          notifMinute={notifPrefs.minute}
+          notifEnabled={notifPrefs.enabled}
+          onSaveNotifPrefs={handleSaveNotifPrefs}
+        />
+        <RevivalModal
+          visible={showRevival}
+          onClose={() => setShowRevival(false)}
+          onConfirm={async () => { await handleStreakRevival(); setShowRevival(false); }}
         />
       </SafeAreaProvider>
     </GestureHandlerRootView>
