@@ -72,6 +72,10 @@ export function SettingsSheet({
     }
   }
 
+  const handleContact = () => {
+    Linking.openURL('mailto:support@letsunpack.app');
+  };
+
   const handleManageSub = async () => {
     const url = 'itms-apps://apps.apple.com/account/subscriptions';
     const canOpen = await Linking.canOpenURL(url);
@@ -105,6 +109,11 @@ export function SettingsSheet({
               <View style={styles.divider} />
               <TouchableOpacity style={styles.option} onPress={handleManageSub}>
                 <Text style={styles.optionText}>Manage Subscription</Text>
+              </TouchableOpacity>
+              <View style={styles.divider} />
+              <TouchableOpacity style={styles.option} onPress={handleContact}>
+                <Text style={styles.optionText}>Contact / Data requests</Text>
+                <Text style={styles.optionSub}>support@letsunpack.app</Text>
               </TouchableOpacity>
               <View style={styles.divider} />
               <TouchableOpacity style={styles.option} onPress={onSignOut}>
@@ -270,6 +279,12 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 15,
     letterSpacing: 0.3,
+  },
+  optionSub: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    letterSpacing: 0.2,
+    marginTop: 2,
   },
   destructive: {
     color: '#c0392b',
