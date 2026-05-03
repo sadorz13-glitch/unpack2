@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Animated, KeyboardAvoidingView, Platform,
+  StyleSheet, ActivityIndicator, Animated, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -360,6 +360,16 @@ export function SessionScreen({
     }
   }
 
+  const handleShareInsight = async () => {
+    if (!insight) return;
+    try {
+      await Share.share({ message: insight });
+      track('insight_shared', { insight_length: insight.length });
+    } catch {
+      // user cancelled — do nothing
+    }
+  };
+
   async function handleExit() {
     if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
     onStopTTS();
@@ -484,6 +494,15 @@ export function SessionScreen({
             </Text>
           ) : null}
         </View>
+
+        {/* Share insight button */}
+        {insight ? (
+          <View style={{ paddingHorizontal: spacing.lg }}>
+            <TouchableOpacity style={styles.shareBtn} onPress={handleShareInsight}>
+              <Text style={styles.shareBtnText}>SHARE INSIGHT</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Buttons pinned to bottom */}
         <View style={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.lg, gap: spacing.lg }}>
@@ -653,5 +672,21 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: spacing.xl,
     marginTop: spacing.base,
+  },
+  shareBtn: {
+    borderWidth: 1,
+    borderColor: 'rgba(180,140,90,0.4)',
+    borderRadius: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center' as const,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  shareBtnText: {
+    color: 'rgba(180,140,90,0.9)',
+    fontSize: 11,
+    letterSpacing: 2,
+    fontWeight: '500' as const,
   },
 });

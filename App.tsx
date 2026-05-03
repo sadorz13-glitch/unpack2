@@ -13,13 +13,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 
-import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION } from './constants';
+import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION, NOTIF_PREFS_KEY, DEFAULT_NOTIF_HOUR, DEFAULT_NOTIF_MINUTE } from './constants';
 import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession } from './lib/supabase';
 import { initAuth, buildHoroscopeContext, setAuthUser, signOut, deleteAccount, getUserId } from './lib/auth';
 import { track, identifyUser, resetAnalytics } from './lib/analytics';
 import { initIAP, loginIAP, logoutIAP } from './lib/iap';
 import { useSubscription } from './hooks/useSubscription';
-import { requestNotificationPermissions, scheduleDailyReminder, scheduleStreakReminders } from './lib/notifications';
+import { requestNotificationPermissions, scheduleDailyReminder, cancelDailyReminder, scheduleStreakReminders } from './lib/notifications';
 import { loadTherapyPreview } from './lib/ai/therapy';
 import { loadJournalEntries } from './lib/journalHelpers';
 import { AuthScreen } from './screens/AuthScreen';
@@ -64,6 +64,7 @@ export default function App() {
   const [horoscopeContext, setHoroscopeContext] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState({ hour: DEFAULT_NOTIF_HOUR, minute: DEFAULT_NOTIF_MINUTE, enabled: true });
 
   // ── Navigation ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>(0);
@@ -198,6 +199,9 @@ export default function App() {
         if (!seen) setShowWelcome(true);
       }
       setAuthReady(true);
+      AsyncStorage.getItem(NOTIF_PREFS_KEY).then(val => {
+        if (val) setNotifPrefs(JSON.parse(val));
+      });
       requestNotificationPermissions().then(granted => { if (granted) scheduleDailyReminder(); });
     }).catch(() => setAuthReady(true));
 
@@ -313,6 +317,17 @@ export default function App() {
     ]);
     setShowSettings(false);
   }
+
+  const handleSaveNotifPrefs = async (hour: number, minute: number, enabled: boolean) => {
+    const prefs = { hour, minute, enabled };
+    setNotifPrefs(prefs);
+    await AsyncStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs));
+    if (enabled) {
+      scheduleDailyReminder(hour, minute);
+    } else {
+      cancelDailyReminder();
+    }
+  };
 
   const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'session', 2: 'vent', 3: 'journal', 4: 'write' };
 
@@ -542,6 +557,10 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onSignOut={handleSignOut}
           onDeleteAccount={handleDeleteAccount}
+          notifHour={notifPrefs.hour}
+          notifMinute={notifPrefs.minute}
+          notifEnabled={notifPrefs.enabled}
+          onSaveNotifPrefs={handleSaveNotifPrefs}
         />
       </SafeAreaProvider>
     </GestureHandlerRootView>

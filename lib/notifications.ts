@@ -1,28 +1,31 @@
 ﻿import * as Sentry from '@sentry/react-native';
 import * as Notifications from 'expo-notifications';
 
+export const DAILY_REMINDER_ID = 'unpack-daily-reminder';
+
 export async function requestNotificationPermissions(): Promise<boolean> {
   const { status } = await Notifications.requestPermissionsAsync();
   return status === 'granted';
 }
 
-export async function scheduleDailyReminder(): Promise<void> {
-  await Notifications.cancelAllScheduledNotificationsAsync();
+export async function scheduleDailyReminder(hour = 20, minute = 0): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_ID).catch(() => {});
   await Notifications.scheduleNotificationAsync({
+    identifier: DAILY_REMINDER_ID,
     content: {
       title: 'How was your day?',
       body: 'Take 2 minutes. You\'ll be glad you did.',
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour: 20,
-      minute: 0,
+      hour,
+      minute,
     } as Notifications.DailyTriggerInput,
   });
 }
 
 export async function cancelDailyReminder(): Promise<void> {
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_ID).catch(() => {});
 }
 
 export async function scheduleStreakReminders(hasStreakToday: boolean): Promise<void> {

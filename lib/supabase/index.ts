@@ -215,3 +215,22 @@ export async function loadLastSession(): Promise<any> {
     return null;
   }
 }
+
+export async function getVentCount(): Promise<number> {
+  const userId = getUserId();
+  if (!userId) return 0;
+  const { data } = await supabase
+    .from('profiles')
+    .select('vent_messages_used')
+    .eq('id', userId)
+    .maybeSingle();
+  return data?.vent_messages_used ?? 0;
+}
+
+export async function incrementVentCount(): Promise<number> {
+  const userId = getUserId();
+  if (!userId) return 0;
+  const { data, error } = await supabase.rpc('increment_vent_messages', { user_uuid: userId });
+  if (error) return 0;
+  return data as number;
+}
