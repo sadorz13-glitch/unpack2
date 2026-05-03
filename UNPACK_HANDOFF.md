@@ -27,7 +27,7 @@ A journaling app. Tagline: "The new way to journal." Not marketed as a therapy a
 - **Text-to-speech:** ElevenLabs, routed through Supabase Edge Function
 - **Auth:** Supabase Auth — Sign in with Apple + Google Sign-In (passwordless, no email/password)
 - **Analytics:** Mixpanel (EU data region, GDPR-compliant)
-- **Crash reporting:** Sentry ✅ (`@sentry/react-native` ^8.10.0, EU region, DSN in `.env`)
+- **Crash reporting:** Sentry ✅ (`@sentry/react-native` ^8.10.0, EU region, DSN in `.env`, production-only init)
 - **Subscriptions:** RevenueCat (planned, blocked on Apple verification)
 - **Domain:** letsunpack.app (purchased on Porkbun, pending ID verification)
 - **Privacy/Terms:** Termly (HTML embed, will live at letsunpack.app/privacy and letsunpack.app/terms)
@@ -163,6 +163,17 @@ These are set in Supabase Dashboard → Project `dehnyyneriiiwetvkjnj` → Setti
 | user_id | text (PK) |
 | name | text |
 | dob | text |
+| vent_messages_used | integer (default 0) |
+
+### `streak_revivals` ✅ (created 2026-05-03)
+| Column | Type |
+|--------|------|
+| id | uuid (PK) |
+| user_id | uuid (FK → auth.users) |
+| revived_date | date |
+| created_at | timestamptz |
+
+Unique constraint on `(user_id, revived_date)` — one revival per day. RLS enabled. `increment_vent_messages(user_uuid uuid)` PostgreSQL function is live — atomically increments and returns new count.
 
 ### `rate_limits` ✅ (created 2026-04-30)
 | Column | Type |
@@ -259,6 +270,7 @@ DOB collected during onboarding. `buildHoroscopeContext(dob)` in `lib/auth.ts` d
 |----------|---------|-------|-----------|
 | `getTransition()` | Bridge between questions | claude-sonnet-4-5 | 60 |
 | `generateInsightAndTraits()` | Post-session insight + trait scores + topic + insightShort | claude-sonnet-4-5 | 300 |
+| `generateDeepDive()` | Deeper analysis — connects answers to traits + past themes | claude-sonnet-4-5 | 400 |
 | `generateQuestion()` | AI-generated personalised question | claude-sonnet-4-5 | 60 |
 | `openTherapySession()` | Talk It Out opening message | claude-sonnet-4-5 | 200 |
 | `sendTherapyMessage()` | Talk It Out reply | claude-sonnet-4-5 | 80 |
@@ -269,12 +281,15 @@ All AI calls route through Supabase Edge Functions (claude-proxy, whisper-proxy,
 
 ### Data Functions
 - `saveSession()` — saves session, answers, insight, traits, insight_short to Supabase
-- `loadStreakAndCount()` — calculates streak from BOTH sessions AND day_notes dates
+- `loadStreakAndCount()` — calculates streak from sessions + day_notes + **streak_revivals** dates
 - `loadAllAnswers()` — loads all sessions + answers grouped by date
 - `loadCalendarMonth()` — fetches sessions + day_notes for a month in parallel (Promise.all), returns map with dots
 - `saveJournalEntry()` — inserts new row into day_notes
 - `loadJournalEntries(date)` — fetches all journal entries for a specific date
 - `loadWeeklyTraits()` — averages trait scores across last 7 days, only returns data if 5+ sessions exist
+- `getVentCount()` — reads `profiles.vent_messages_used` (server count, anti-reinstall-bypass)
+- `incrementVentCount()` — calls `increment_vent_messages` RPC, returns new server count
+- `recordStreakRevival(date)` — inserts row into `streak_revivals`
 
 ---
 
@@ -312,13 +327,16 @@ Done as part of pre-launch hardening (commits from 2026-04-19 to 2026-04-30):
 - Planned products:
   - `com.zute.unpack2.premium.monthly` — $6.99/month
   - `com.zute.unpack2.premium.annual` — $34.99/year, 7-day free trial
+  - `com.zute.unpack2.revival` — $0.99 consumable, "Reclaim Your Streak" (restore one missed day)
 - Planned entitlement: `premium` (Talk It Out unlimited, voice AI analysis, Weekly Wheel)
 - Paywall placement: wired into onboarding flow
+- Revival is a **consumable** IAP, not a subscription — needs separate product in App Store Connect
 
 ### Sentry (crash reporting) — ✅ FULLY INTEGRATED
 - Account: Valecrest org, EU region (`ingest.de.sentry.io`)
 - `@sentry/react-native` ^8.10.0 installed; Expo config plugin in `app.json`
 - Init in `index.ts` before `registerRootComponent` — wraps `App` via `Sentry.wrap()`
+- **Production-only** (`!__DEV__` guard) — no Sentry noise during local development
 - 10% trace sampling; Session Replay **disabled** (sensitive mental health content)
 - `Sentry.setUser()` called on auth state changes in `App.tsx`
 - Screen-level `<Sentry.ErrorBoundary>` wraps each PagerView tab screen
@@ -387,6 +405,9 @@ components/
   ShimmerTile.tsx     — loading shimmer
   OnboardingScreen.tsx — name + DOB onboarding (+ paywall)
   BottomTabBar.tsx    — tab navigation bar
+  DeepDiveModal.tsx   — "DEEPER LOOK" full-screen modal, calls generateDeepDive()
+  RevivalModal.tsx    — "Reclaim your streak" $0.99 IAP modal
+  SettingsSheet.tsx   — settings sheet: notifications, manage subscription, sign out, delete account
 ```
 
 ---
@@ -420,7 +441,13 @@ components/
 - Dev wipe button — on HomeScreen (bottom right, faint) and AuthScreen; clears all data
 - Account deletion — Settings gear on HomeScreen → SettingsSheet → "Delete account" → warning step → type "DELETE" → wipes all data + auth user
 - Offline handling — all screens degrade gracefully when offline
-- Sentry crash reporting — init in `index.ts`, screen ErrorBoundaries, captureException across all critical paths, user context tagging on auth: AuthScreen blocks sign-in, SessionScreen blocks session start, TalkScreen dims starter bubble, JournalScreen queues writes to AsyncStorage, WritingScreen blocks AI. OfflineBanner shown app-wide. Home cache serves stale data while loading. Pending session retries on reconnect.
+- Sentry crash reporting — init in `index.ts`, screen ErrorBoundaries, captureException across all critical paths, user context tagging on auth (production-only)
+- Notification time preferences — Settings gear → "Notification reminder" → adjustable hour/minute + enable/disable toggle, persisted in AsyncStorage
+- "SHARE INSIGHT" button on session complete screen — native iOS Share sheet
+- "READ MORE" → Deep Dive modal on session complete — AI analysis (400 tokens) cross-referencing answers, traits, and past insights
+- Streak revival — "RECLAIM" button on streak tile when streak is 0 but yesterday had activity; $0.99 IAP via `RevivalModal`, records to `streak_revivals` table, streak recalculates immediately
+- Vent count is now server-authoritative — `profiles.vent_messages_used` column + `increment_vent_messages` RPC prevent reinstall bypass
+- Notification identifiers — daily reminder and streak reminders use named IDs, no longer call `cancelAllScheduledNotificationsAsync` (was wiping daily reminder): AuthScreen blocks sign-in, SessionScreen blocks session start, TalkScreen dims starter bubble, JournalScreen queues writes to AsyncStorage, WritingScreen blocks AI. OfflineBanner shown app-wide. Home cache serves stale data while loading. Pending session retries on reconnect.
 
 ---
 
@@ -443,7 +470,7 @@ Apple verification was submitted 2026-04-30. Once approved, unlocks:
 | Google iOS client credential | Requires bundle ID (com.zute.unpack2) — bundle ID is already set |
 | iosUrlScheme in app.json | Replace placeholder with reversed Google iOS client ID |
 | EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in .env | Fill in once iOS client created |
-| RevenueCat setup | Create account → App Store Connect products → RevenueCat dashboard → add EXPO_PUBLIC_REVENUECAT_IOS_KEY |
+| RevenueCat setup | Create account → App Store Connect products (monthly, annual, + `com.zute.unpack2.revival` consumable) → RevenueCat dashboard → add EXPO_PUBLIC_REVENUECAT_IOS_KEY |
 | EAS build setup | Needed to test auth (won't work in Expo Go) |
 | Add SENTRY_AUTH_TOKEN to EAS Secrets | For sourcemap upload — `eas secret:create --name SENTRY_AUTH_TOKEN --value <token>`. Generate at sentry.io → Settings → Auth Tokens |
 | app.json name fix | Change "unpack2" → "Unpack" before App Store submission |
@@ -492,8 +519,8 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 
 ### Post-launch (V2)
 1. Retroactive voice note analysis on upgrade
-2. Streak revival purchase ("Reclaim This Day")
-3. "Tell me more" deep dive screen (from banner tap — planned but not built)
+2. ✅ Streak revival purchase ("Reclaim This Day") — built May 3
+3. ✅ Deep Dive modal ("Tell me more") — built May 3
 4. Weekly Wheel based on actual days not just session count
 5. Cross-session memory improvements in Talk It Out
 
@@ -531,6 +558,10 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 - Offline gates show/hide correctly on all screens when toggling airplane mode
 - Journal offline queue actually flushes and entries appear when reconnecting
 - Pending session retry uploads the saved session correctly after going offline mid-session then reconnecting
+- Streak revival eligibility (`computeCanRevive`) correctly detects yesterday activity + no prior revival for that date
+- `increment_vent_messages` RPC uses `WHERE id = user_uuid` — verify the profiles PK column name matches (schema shows `user_id` but SQL says `id` — potential silent failure)
+- Deep Dive modal generates meaningful personalised output, not generic filler
+- Revival IAP shows "RECLAIM" button only when appropriate, disappears after successful purchase
 
 ---
 
