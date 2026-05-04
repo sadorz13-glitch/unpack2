@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
   ActivityIndicator, StyleSheet, Pressable, Switch,
   ScrollView, Linking,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, fontFamilies } from '../theme';
 
@@ -48,6 +49,13 @@ export function SettingsSheet({
   const [notifLocalHour, setNotifLocalHour] = useState(notifHour);
   const [notifLocalMinute, setNotifLocalMinute] = useState(notifMinute);
   const [notifLocalEnabled, setNotifLocalEnabled] = useState(notifEnabled);
+  const [emailOptOut, setEmailOptOut] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      AsyncStorage.getItem('email_opt_out').then(val => setEmailOptOut(val === 'true'));
+    }
+  }, [visible]);
 
   function reset() {
     setStep('menu');
@@ -75,6 +83,11 @@ export function SettingsSheet({
   const handleContact = () => {
     Linking.openURL('mailto:support@letsunpack.app');
   };
+
+  async function handleEmailOptOutToggle(val: boolean) {
+    setEmailOptOut(val);
+    await AsyncStorage.setItem('email_opt_out', String(val));
+  }
 
   const handleManageSub = async () => {
     const url = 'itms-apps://apps.apple.com/account/subscriptions';
@@ -110,6 +123,16 @@ export function SettingsSheet({
               <TouchableOpacity style={styles.option} onPress={handleManageSub}>
                 <Text style={styles.optionText}>Manage Subscription</Text>
               </TouchableOpacity>
+              <View style={styles.divider} />
+              <View style={[styles.option, styles.optionRow]}>
+                <Text style={styles.optionText}>Marketing emails</Text>
+                <Switch
+                  value={!emailOptOut}
+                  onValueChange={val => handleEmailOptOutToggle(!val)}
+                  trackColor={{ false: 'rgba(255,255,255,0.1)', true: ACCENT }}
+                  thumbColor={colors.textPrimary}
+                />
+              </View>
               <View style={styles.divider} />
               <TouchableOpacity style={styles.option} onPress={handleContact}>
                 <Text style={styles.optionText}>Contact / Data requests</Text>
@@ -274,6 +297,11 @@ const styles = StyleSheet.create({
   },
   option: {
     paddingVertical: spacing.base,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   optionText: {
     color: colors.textPrimary,
