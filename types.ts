@@ -25,6 +25,14 @@ export type JournalEntry = {
   saved?: boolean;
 };
 
+export type DeepDiveResult = {
+  quote: string;
+  what_you_said: string;
+  the_pattern: string;
+  something_to_sit_with: string;
+  reflection_prompt: string;
+};
+
 export type CalendarDay = {
   id: string | null;
   insight: string | null;

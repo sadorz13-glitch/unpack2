@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { callClaude } from './client';
-import { QAPair, SessionResult } from '../../types';
+import { QAPair, SessionResult, DeepDiveResult } from '../../types';
 
 export async function getTransition(
   question: string,
@@ -37,6 +37,7 @@ export async function generateInsightAndTraits(
 
   try {
     const raw = await callClaude(prompt, 300);
+    // Model occasionally wraps JSON in markdown fences despite instructions; strip defensively.
     return JSON.parse(raw.replace(/```json|```/g, '').trim()) as SessionResult;
   } catch (e) {
     Sentry.captureException(e);
@@ -48,7 +49,7 @@ export async function generateDeepDive(
   answers: Array<{ question: string; answer: string }>,
   traits: Record<string, number>,
   recentInsights: string[],
-): Promise<string> {
+): Promise<DeepDiveResult> {
   const traitSummary = Object.entries(traits)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
@@ -56,13 +57,25 @@ export async function generateDeepDive(
     .join(', ');
 
   const pastContext = recentInsights.length > 0
-    ? `Recent themes from your past sessions: ${recentInsights.slice(0, 3).join('; ')}.`
+    ? `Recent themes from their past sessions: ${recentInsights.slice(0, 3).join('; ')}.`
     : '';
 
-  const prompt = `You are a warm, perceptive therapist-coach. The user just completed a reflection session.\n\nTheir answers:\n${answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n')}\n\nTop traits: ${traitSummary}\n${pastContext}\n\nWrite a 4–6 sentence personalised insight that:\n- Connects their answers to their dominant traits\n- Notes any emotional pattern or recurring theme\n- Ends with one specific, actionable observation\n- Speaks directly to the user (use "you")\n- Tone: warm, honest, non-generic\n\nDo not use bullet points or headers. Plain paragraphs only.`;
+  const prompt =
+    `You are a warm, perceptive therapist-coach writing a personal reflection for someone who just completed a journaling session.\n\n` +
+    `Their answers:\n${answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n')}\n\n` +
+    `Top traits: ${traitSummary}\n${pastContext}\n\n` +
+    `Respond ONLY with valid JSON in this exact shape, no markdown fences:\n` +
+    `{\n` +
+    `  "quote": "A short evocative phrase (8–12 words) that distils the emotional truth of their session. No quotation marks inside the string.",\n` +
+    `  "what_you_said": "2–3 sentences reflecting back the key things they expressed — specific, warm, not paraphrasing robotically.",\n` +
+    `  "the_pattern": "2–3 sentences naming the underlying emotional pattern or recurring theme you see across their answers and past sessions.",\n` +
+    `  "something_to_sit_with": "1–2 sentences — an honest, slightly uncomfortable observation they might be avoiding. Warm but direct.",\n` +
+    `  "reflection_prompt": "One open question (not rhetorical) to carry forward. Start with 'What' or 'When' or 'How'. No question mark needed at end."\n` +
+    `}`;
 
   try {
-    return await callClaude(prompt, 400);
+    const raw = await callClaude(prompt, 500);
+    return JSON.parse(raw.replace(/```json|```/g, '').trim()) as DeepDiveResult;
   } catch (e) {
     Sentry.captureException(e);
     throw e;

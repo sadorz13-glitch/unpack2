@@ -1,4 +1,3 @@
-// screens/SessionScreen.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
@@ -16,8 +15,6 @@ import { getTransition, generateInsightAndTraits } from '../lib/api';
 import { saveSession, loadStreakAndCount } from '../lib/supabase';
 import { track } from '../lib/analytics';
 
-// ─── Exported utilities (tested) ─────────────────────────────────────────────
-
 const REQUEUE_KEY = 'requeuedQuestion';
 const FALLBACK_INSIGHT = "Stop waiting for the right moment — it's not coming.";
 const FALLBACK_TOPIC = 'self reflection';
@@ -32,8 +29,6 @@ export async function loadAndClearRequeuedQuestion(): Promise<string | null> {
   if (val) await AsyncStorage.removeItem(REQUEUE_KEY);
   return val;
 }
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Props = {
   userId: string | null;
@@ -75,8 +70,6 @@ const TONGUE_CONFIGS = [
   { width: 24, height: 82,  color: '#cc2200', deg: 26,   offsetX: 80 },
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export function SessionScreen({
   userId, sessionCount, horoscopeContext, topic, traits, isRecording, isTranscribing,
   micPulseAnim, meteringLevelAnim, ttsEnabled, isConnected = true, onSessionComplete, onExit,
@@ -103,7 +96,6 @@ export function SessionScreen({
   const [showDeepDive, setShowDeepDive] = useState(false);
   const sessionSavedRef = useRef(false);
 
-  // Flame animation values — created once, reused across celebration triggers
   const flashAnim = useRef(new Animated.Value(0)).current;
   const streakBounce = useRef(new Animated.Value(0)).current;
   const streakOpacity = useRef(new Animated.Value(0)).current;
@@ -118,7 +110,6 @@ export function SessionScreen({
   const currentQuestionRef = useRef('');
   const batchAnswersRef = useRef<{ question: string; answer: string }[]>([]);
 
-  // Preload the first question silently on mount so it's ready when user taps BEGIN
   useEffect(() => {
     prepareFirstQuestion();
   }, []);
@@ -174,7 +165,7 @@ export function SessionScreen({
         ? 'Already answered this session:\n' + answersSoFar.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n') + '\n\n'
         : '';
       const usedList = used.length > 0 ? 'Do not ask any of these:\n' + used.join('\n') + '\n\n' : '';
-      const prompt = horoscopeContext + `\n\nGenerate ONE powerful journaling question for this person. ${recentTopics}${traitContext}${answeredSoFar}${usedList}Style: direct, slightly confrontational, introspective. Max 15 words. No preamble, just the question.`;
+      const prompt = horoscopeContext + `\n\nGenerate ONE journaling question for this person. ${recentTopics}${traitContext}${answeredSoFar}${usedList}Style: direct, specific, conversational — like a sharp friend asking you something real. Max 12 words. Must be answerable in 1-2 sentences. No broad philosophical openers. No preamble, just the question.`;
       const result = await callClaude(prompt, 60);
       return result.replace(/^["']|["']$/g, '');
     } catch {
@@ -216,7 +207,6 @@ export function SessionScreen({
       setInsightShort(insightShortText);
       setCurrentTraits(traitsResult);
       setCurrentTopic(topicResult);
-      // Save session + load streak before showing celebration
       let streakVal = 0;
       let totalVal = 0;
       try {
@@ -278,19 +268,16 @@ export function SessionScreen({
 
   useEffect(() => {
     if (view !== 'celebrate') return;
-    // Reset to start positions
     flashAnim.setValue(0);
     streakBounce.setValue(0);
     streakOpacity.setValue(0);
     tongueAnims.forEach(t => { t.translateY.setValue(200); t.opacity.setValue(0); });
 
     Animated.parallel([
-      // Screen flash: fast orange bloom then fade
       Animated.sequence([
         Animated.timing(flashAnim, { toValue: 1, duration: 130, useNativeDriver: true }),
         Animated.timing(flashAnim, { toValue: 0, duration: 1100, useNativeDriver: true }),
       ]),
-      // Flame tongues shoot up then dissolve (staggered)
       ...tongueAnims.map((t, i) =>
         Animated.sequence([
           Animated.delay(i * 45),
@@ -304,7 +291,6 @@ export function SessionScreen({
           ]),
         ])
       ),
-      // Streak number: pop in with overshoot after brief delay
       Animated.sequence([
         Animated.delay(250),
         Animated.parallel([
@@ -434,7 +420,6 @@ export function SessionScreen({
   if (view === 'celebrate') {
     return (
       <View style={[styles.root, { paddingTop: insets.top, backgroundColor: colors.bg, overflow: 'hidden' }]}>
-        {/* Orange screen flash */}
         <Animated.View
           pointerEvents="none"
           style={[
@@ -443,9 +428,7 @@ export function SessionScreen({
           ]}
         />
 
-        {/* Flame + streak centred in remaining space */}
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          {/* Flame tongues — absolute inside a fixed-size container */}
           <View style={{ width: 220, height: 180, position: 'relative', alignItems: 'center' }}>
             {TONGUE_CONFIGS.map((cfg, i) => (
               <Animated.View
@@ -476,7 +459,6 @@ export function SessionScreen({
             ))}
           </View>
 
-          {/* Streak number */}
           <Animated.Text
             style={[
               styles.celebrationNumber,
@@ -489,7 +471,6 @@ export function SessionScreen({
             DAY STREAK
           </Animated.Text>
 
-          {/* Insight quote */}
           {insight ? (
             <Text style={styles.celebrationInsight} numberOfLines={3}>
               "{insight}"
@@ -502,7 +483,6 @@ export function SessionScreen({
           ) : null}
         </View>
 
-        {/* Share insight button */}
         {insight ? (
           <View style={{ paddingHorizontal: spacing.lg }}>
             <TouchableOpacity style={styles.shareBtn} onPress={handleShareInsight}>
@@ -511,7 +491,6 @@ export function SessionScreen({
           </View>
         ) : null}
 
-        {/* Buttons pinned to bottom */}
         <View style={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.lg, gap: spacing.lg }}>
           <TouchableOpacity style={styles.primaryBtn} onPress={handleKeepGoing}>
             <Text style={styles.primaryBtnText}>KEEP GOING →</Text>
@@ -606,7 +585,6 @@ export function SessionScreen({
               </View>
             )
           )}
-          {/* Skip question — barely visible */}
           {!transitioning && (
             <TouchableOpacity onPress={skipQuestion} style={styles.skipBtn}>
               <Text style={styles.skipText}>this question doesn't sit right with me</Text>
@@ -649,7 +627,6 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: colors.accent, fontSize: 11, letterSpacing: 6 },
   ghostText: { color: colors.textGhost, fontSize: 9, letterSpacing: 3 },
   loadingText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
-  // Entry screen
   entryRoot: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg },
   entryCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
   entryHeading: { fontFamily: fontFamilies.serifItalic, fontSize: 28, color: colors.textPrimary, textAlign: 'center' },
@@ -658,10 +635,8 @@ const styles = StyleSheet.create({
   beginBtnDisabled: { opacity: 0.3 },
   beginBtnText: { color: colors.accent, fontSize: 11, letterSpacing: 6 },
   offlineHint: { color: colors.textMuted, fontSize: 11, letterSpacing: 0.3, marginTop: spacing.md, textAlign: 'center' },
-  // Skip question
   skipBtn: { marginTop: spacing.xl, paddingVertical: spacing.md, alignSelf: 'center' },
   skipText: { color: 'rgba(107,101,96,0.35)', fontSize: 10, letterSpacing: 1, textAlign: 'center' },
-  // Celebration screen
   celebrationNumber: {
     fontFamily: fontFamilies.serifItalic,
     fontSize: 96,

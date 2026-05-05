@@ -50,16 +50,27 @@ export function useTTS() {
       let binary = '';
       for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
       const base64 = btoa(binary);
-      const fileUri = `${FileSystem.cacheDirectory}tts_${Date.now()}.mp3`;
+      console.log('[TTS] base64 length:', base64.length);
+
+      const cacheDir = FileSystem.cacheDirectory;
+      if (!cacheDir) throw new Error('TTS: no cache directory available');
+      const fileUri = cacheDir + `tts_${Date.now()}.mp3`;
       await FileSystem.writeAsStringAsync(fileUri, base64, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      const { sound } = await Audio.Sound.createAsync({ uri: fileUri });
+      console.log('[TTS] file written:', fileUri);
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: fileUri },
+        { shouldPlay: false },
+      );
+      console.log('[TTS] sound created');
       ttsoundRef.current = sound;
-      await new Promise<void>(resolve => {
+
+      await new Promise<void>((resolve, reject) => {
         ttsResolveRef.current = resolve;
         sound.setOnPlaybackStatusUpdate((status: any) => {
-          if (status.didJustFinish) {
+          if (status.isLoaded && status.didJustFinish) {
             ttsResolveRef.current = null;
             ttsoundRef.current = null;
             sound.unloadAsync().catch(() => {});
@@ -67,8 +78,14 @@ export function useTTS() {
             setIsSpeaking(false);
             resolve();
           }
+          if (status.error) {
+            console.log('[TTS] playback error:', status.error);
+            reject(new Error(status.error));
+          }
         });
-        sound.playAsync();
+        sound.playAsync()
+          .then(s => console.log('[TTS] playAsync status:', s.isPlaying))
+          .catch(e => { console.log('[TTS] playAsync failed:', e); reject(e); });
       });
     } catch {
       setIsSpeaking(false);

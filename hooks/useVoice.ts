@@ -1,8 +1,77 @@
 import { useState, useRef, useEffect } from 'react';
-import { Platform, Animated } from 'react-native';
+import { Animated } from 'react-native';
 import { Audio } from 'expo-av';
 import { SUPABASE_URL } from '../constants';
 import { getAccessToken } from '../lib/auth';
+
+function createVAD() {
+  let baselineDb = -50;
+  let isUserSpeaking = false;
+  let speechOnsetTime: number | null = null;
+  let speakingStartedAt: number | null = null;
+  let silenceStartTime: number | null = null;
+  const startTime = Date.now();
+  let lastRecalibTime = startTime;
+  const recalibSamples: number[] = [];
+
+  return {
+    process(level: number, onSpeechEnd: () => void): void {
+      const now = Date.now();
+      const elapsed = now - startTime;
+
+      if (elapsed < 1500) {
+        recalibSamples.push(level);
+        if (recalibSamples.length >= 5) {
+          const sorted = [...recalibSamples].sort((a, b) => a - b);
+          const n = Math.max(1, Math.ceil(sorted.length * 0.3));
+          baselineDb = sorted.slice(0, n).reduce((s, v) => s + v, 0) / n;
+        }
+        return;
+      }
+
+      if (!isUserSpeaking && now - lastRecalibTime >= 10000) {
+        recalibSamples.push(level);
+        if (recalibSamples.length > 30) recalibSamples.shift();
+        const sorted = [...recalibSamples].sort((a, b) => a - b);
+        const n = Math.max(1, Math.ceil(sorted.length * 0.3));
+        baselineDb = sorted.slice(0, n).reduce((s, v) => s + v, 0) / n;
+        lastRecalibTime = now;
+      }
+
+      const speechThreshold = baselineDb + 12;
+      const silenceThreshold = baselineDb + 4;
+
+      if (!isUserSpeaking) {
+        if (level > speechThreshold) {
+          if (speechOnsetTime === null) speechOnsetTime = now;
+          else if (now - speechOnsetTime >= 300) {
+            isUserSpeaking = true;
+            speakingStartedAt = speechOnsetTime;
+            silenceStartTime = null;
+          }
+        } else {
+          speechOnsetTime = null;
+        }
+      } else {
+        if (level < silenceThreshold) {
+          if (silenceStartTime === null) silenceStartTime = now;
+          else if (now - silenceStartTime >= 1500) {
+            const speechDuration = silenceStartTime - (speakingStartedAt ?? silenceStartTime);
+            if (speechDuration >= 500) {
+              isUserSpeaking = false;
+              speechOnsetTime = null;
+              speakingStartedAt = null;
+              silenceStartTime = null;
+              onSpeechEnd();
+            }
+          }
+        } else {
+          silenceStartTime = null;
+        }
+      }
+    },
+  };
+}
 
 export function useVoice() {
   const [isRecording, setIsRecording] = useState(false);
@@ -10,13 +79,11 @@ export function useVoice() {
   const [inputMode, setInputMode] = useState<'voice' | 'type'>('voice');
   const recordingRef = useRef<any>(null);
   const recordingSetterRef = useRef<any>(null);
-  const meteringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const silenceStartRef = useRef<number | null>(null);
+  const vadRef = useRef<ReturnType<typeof createVAD> | null>(null);
   const micPulseAnim = useRef(new Animated.Value(1)).current;
   const meteringLevelAnim = useRef(new Animated.Value(1)).current;
   const onTranscribedRef = useRef<((text: string) => void) | null>(null);
 
-  // Animate mic pulse dot while recording
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
@@ -46,45 +113,24 @@ export function useVoice() {
       recordingSetterRef.current = setterFn;
       setIsRecording(true);
 
-      const startedAt = Date.now();
-      // Android metering reports higher values than iOS — use a looser threshold
-      const SILENCE_DB = Platform.OS === 'android' ? -28 : -42;
-      const SILENCE_DURATION_MS = 1800;
-      let speechEverDetected = false;
+      const vad = createVAD();
+      vadRef.current = vad;
 
-      meteringIntervalRef.current = setInterval(async () => {
-        if (!recordingRef.current) return;
-        try {
-          const status = await recordingRef.current.getStatusAsync();
-          if (!status.isRecording) return;
-          const level = status.metering ?? -160;
+      recording.setProgressUpdateInterval(100);
+      recording.setOnRecordingStatusUpdate((status: any) => {
+        if (!status.isRecording) return;
+        const level = status.metering ?? -160;
 
-          const clamped = Math.max(-60, Math.min(-5, level));
-          const targetScale = 1 + ((clamped + 60) / 55) * 2.5;
-          Animated.timing(meteringLevelAnim, {
-            toValue: targetScale,
-            duration: 60,
-            useNativeDriver: true,
-          }).start();
+        const clamped = Math.max(-60, Math.min(-5, level));
+        const targetScale = 1 + ((clamped + 60) / 55) * 2.5;
+        Animated.timing(meteringLevelAnim, {
+          toValue: targetScale,
+          duration: 60,
+          useNativeDriver: true,
+        }).start();
 
-          if (Date.now() - startedAt < 1500) return; // warmup window
-
-          if (level > -20) speechEverDetected = true;
-          if (!speechEverDetected) return;
-
-          if (level < SILENCE_DB) {
-            if (!silenceStartRef.current) silenceStartRef.current = Date.now();
-            else if (Date.now() - silenceStartRef.current > SILENCE_DURATION_MS) {
-              clearInterval(meteringIntervalRef.current!);
-              meteringIntervalRef.current = null;
-              silenceStartRef.current = null;
-              stopVoiceRecording(recordingSetterRef.current);
-            }
-          } else {
-            silenceStartRef.current = null;
-          }
-        } catch {}
-      }, 100);
+        vad.process(level, () => stopVoiceRecording(recordingSetterRef.current));
+      });
     } catch {}
   }
 
@@ -93,11 +139,8 @@ export function useVoice() {
     if (!rec) return;
     recordingRef.current = null; // claim immediately — prevents double-stop race
     try {
-      if (meteringIntervalRef.current) {
-        clearInterval(meteringIntervalRef.current);
-        meteringIntervalRef.current = null;
-      }
-      silenceStartRef.current = null;
+      vadRef.current = null;
+      rec.setOnRecordingStatusUpdate(null);
       setIsRecording(false);
       setIsTranscribing(true);
       Animated.timing(meteringLevelAnim, { toValue: 1, duration: 150, useNativeDriver: true }).start();

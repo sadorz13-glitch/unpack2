@@ -1,4 +1,3 @@
-import { Alert } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import { TRAITS } from '../../constants';
 import { getUserId } from '../auth';
@@ -44,9 +43,14 @@ export async function loadStreakAndCount(
   try {
     const uid = getUserId();
     if (!uid) throw new Error('Not authenticated');
-    const { data, count } = await supabase
+    const { count: exactCount } = await supabase
       .from('sessions')
-      .select('created_at', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', uid);
+
+    const { data } = await supabase
+      .from('sessions')
+      .select('created_at')
       .eq('user_id', uid)
       .order('created_at', { ascending: false });
 
@@ -60,7 +64,7 @@ export async function loadStreakAndCount(
       .select('revived_date')
       .eq('user_id', uid);
 
-    const totalCount = count ?? 0;
+    const totalCount = exactCount ?? 0;
 
     const now = new Date();
     const today = now.toLocaleDateString('en-CA');
@@ -208,10 +212,12 @@ export async function loadWeeklyTraits(): Promise<Record<string, number> | null>
 
 export async function loadLastSession(): Promise<any> {
   try {
+    const uid = getUserId();
+    if (!uid) throw new Error('Not authenticated');
     const { data } = await supabase
       .from('sessions')
       .select('*')
-      .eq('user_id', getUserId())
+      .eq('user_id', uid)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();

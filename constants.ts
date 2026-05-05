@@ -1,5 +1,3 @@
-import { Dimensions } from 'react-native';
-
 // ─── KEYS & CONFIG ────────────────────────────────────────────────────────────
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -14,12 +12,12 @@ export const QUESTIONS: string[] = [
   "What would you do differently if you knew no one was judging you?",
   "When did you last feel genuinely proud of yourself, and what caused it?",
   "What emotion do you feel most often that you rarely talk about?",
-  "What's the biggest gap between who you are and who you want to be?",
+  "What's one thing you keep promising yourself that still hasn't happened?",
   "What are you most afraid people would think if they saw the real you?",
   "Where are you settling for less than you deserve right now?",
   "What do you spend money on that doesn't actually make you happy?",
   "Who do you compare yourself to most, and how does it make you feel?",
-  "What's a belief you hold about yourself that might not be true?",
+  "What do you tell yourself about why you are the way you are?",
   "When do you feel most like yourself, and how often does that happen?",
   "What are you avoiding that you know you need to face?",
   "What does your ideal day look like, and how far is your life from that?",
@@ -31,7 +29,7 @@ export const QUESTIONS: string[] = [
   "Where do you feel the most pressure in your life right now?",
   "What habit are you most ashamed of and why do you keep it?",
   "What does success look like to you, and whose definition is that?",
-  "Who were you before life told you who to be?",
+  "Who's a version of yourself you've stopped letting people see?",
   "What's something you've forgiven others for but not yourself?",
   "Where do you spend energy you don't have on things that don't matter?",
   "What do you wish people understood about you without you have to explain?",
@@ -46,7 +44,7 @@ export const QUESTIONS: string[] = [
   "What relationship in your life needs the most work right now?",
   "What are you chasing that you're not sure you actually want?",
   "When was the last time you did something purely for yourself?",
-  "What part of your past still has power over your present?",
+  "What's one thing from your past that still catches you off guard?",
   "What would you change about your life if money wasn't a factor?",
   "What truth are you not ready to admit to yourself yet?",
   // ── Lighter / character-revealing questions ──────────────────────────────
@@ -69,10 +67,6 @@ export const QUESTIONS: string[] = [
 
 export const TRAITS: string[] = ['Openness', 'Self-awareness', 'Avoidance', 'Ambition', 'Resilience'];
 
-export const { width } = Dimensions.get('window');
-export const CARD_SIZE = (width - 72) / 2;
-
-
 export const STORAGE_KEY_HAS_SEEN_WELCOME = 'hasSeenWelcome';
 export const STORAGE_KEY_HANDLED_TOPICS = 'handledTopics';
 export const STORAGE_KEY_FLAGGED_TOPICS = 'flaggedTopics';
@@ -84,8 +78,9 @@ export const FREE_VENT_MESSAGE_LIMIT = 5;
 export const REVENUECAT_ENTITLEMENT_ID = 'premium';
 export const REVIVAL_PRODUCT_ID = 'com.zute.unpack2.revival';
 
-export const PRIVACY_POLICY_URL = 'https://letsunpack.app/privacy';
-export const TERMS_URL = 'https://letsunpack.app/terms';
+// Update these before shipping — required for Apple App Store compliance
+export const PRIVACY_POLICY_URL = 'https://letsunpack.app/privacy/';
+export const TERMS_URL = 'https://letsunpack.app/terms/';
 
 export const DEFAULT_NOTIF_HOUR = 20;
 export const DEFAULT_NOTIF_MINUTE = 0;

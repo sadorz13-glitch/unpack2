@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
-  ActivityIndicator, StyleSheet, Pressable, Switch,
-  ScrollView, Linking,
+  ActivityIndicator, StyleSheet, Pressable, Switch, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,21 +22,10 @@ type Step = 'menu' | 'confirm' | 'type' | 'notifications';
 
 const ACCENT = 'rgba(180,140,90,0.9)';
 
-function formatHour(h: number): string {
-  if (h === 0) return '12 AM';
-  if (h < 12) return `${h} AM`;
-  if (h === 12) return '12 PM';
-  return `${h - 12} PM`;
-}
-
-function formatMinute(m: number): string {
-  return `:${m.toString().padStart(2, '0')}`;
-}
-
 export function SettingsSheet({
   visible, onClose, onSignOut, onDeleteAccount,
   onSaveNotifPrefs,
-  notifHour = 20, notifMinute = 0, notifEnabled = true,
+  notifEnabled = true,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<Step>('menu');
@@ -45,9 +33,6 @@ export function SettingsSheet({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Notification local state
-  const [notifLocalHour, setNotifLocalHour] = useState(notifHour);
-  const [notifLocalMinute, setNotifLocalMinute] = useState(notifMinute);
   const [notifLocalEnabled, setNotifLocalEnabled] = useState(notifEnabled);
   const [emailOptOut, setEmailOptOut] = useState(false);
 
@@ -96,14 +81,12 @@ export function SettingsSheet({
   };
 
   function handleOpenNotifications() {
-    setNotifLocalHour(notifHour);
-    setNotifLocalMinute(notifMinute);
     setNotifLocalEnabled(notifEnabled);
     setStep('notifications');
   }
 
   function handleSaveNotifs() {
-    onSaveNotifPrefs?.(notifLocalHour, notifLocalMinute, notifLocalEnabled);
+    onSaveNotifPrefs?.(20, 0, notifLocalEnabled);
     handleClose();
   }
 
@@ -217,45 +200,6 @@ export function SettingsSheet({
                   thumbColor={colors.textPrimary}
                 />
               </View>
-
-              {notifLocalEnabled && (
-                <>
-                  <Text style={styles.chipLabel}>Hour</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.chipScroll}
-                    contentContainerStyle={styles.chipRow}
-                  >
-                    {Array.from({ length: 24 }, (_, i) => i).map(h => (
-                      <TouchableOpacity
-                        key={h}
-                        style={[styles.chip, notifLocalHour === h && styles.chipSelected]}
-                        onPress={() => setNotifLocalHour(h)}
-                      >
-                        <Text style={[styles.chipText, notifLocalHour === h && styles.chipTextSelected]}>
-                          {formatHour(h)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-
-                  <Text style={styles.chipLabel}>Minute</Text>
-                  <View style={styles.chipRow}>
-                    {[0, 15, 30, 45].map(m => (
-                      <TouchableOpacity
-                        key={m}
-                        style={[styles.chip, notifLocalMinute === m && styles.chipSelected]}
-                        onPress={() => setNotifLocalMinute(m)}
-                      >
-                        <Text style={[styles.chipText, notifLocalMinute === m && styles.chipTextSelected]}>
-                          {formatMinute(m)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </>
-              )}
 
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveNotifs}>
                 <Text style={styles.saveBtnText}>Save</Text>
@@ -381,7 +325,6 @@ const styles = StyleSheet.create({
   dimmed: {
     opacity: 0.4,
   },
-  // Notifications step
   notifHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -401,43 +344,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.base,
     marginBottom: spacing.base,
-  },
-  chipLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  chipScroll: {
-    marginBottom: spacing.sm,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  chip: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  chipSelected: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
-  },
-  chipText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-  },
-  chipTextSelected: {
-    color: '#fff',
-    fontWeight: '600',
   },
   saveBtn: {
     marginTop: spacing.lg,
