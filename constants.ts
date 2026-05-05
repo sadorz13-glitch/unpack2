@@ -84,9 +84,8 @@ export const FREE_VENT_MESSAGE_LIMIT = 5;
 export const REVENUECAT_ENTITLEMENT_ID = 'premium';
 export const REVIVAL_PRODUCT_ID = 'com.zute.unpack2.revival';
 
-// Update these before shipping — required for Apple App Store compliance
-export const PRIVACY_POLICY_URL = 'https://TODO_REPLACE_WITH_REAL_URL/privacy';
-export const TERMS_URL = 'https://TODO_REPLACE_WITH_REAL_URL/terms';
+export const PRIVACY_POLICY_URL = 'https://letsunpack.app/privacy';
+export const TERMS_URL = 'https://letsunpack.app/terms';
 
 export const DEFAULT_NOTIF_HOUR = 20;
 export const DEFAULT_NOTIF_MINUTE = 0;
