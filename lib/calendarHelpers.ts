@@ -25,9 +25,11 @@ export async function loadDayNote(date: string): Promise<string> {
 
 export async function loadCalendarMonth(year: number, month: number): Promise<Record<string, CalendarDay>> {
   const uid = getUserId();
-  const start = new Date(year, month, 1).toISOString();
-  const end = new Date(year, month + 1, 1).toISOString();
-  const startDate = new Date(year, month, 1).toLocaleDateString('en-CA');
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 1);
+  const start = monthStart.toISOString();
+  const end = monthEnd.toISOString();
+  const startDate = monthStart.toLocaleDateString('en-CA');
   const endDate = new Date(year, month + 1, 0).toLocaleDateString('en-CA');
 
   try {

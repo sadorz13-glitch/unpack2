@@ -6,18 +6,12 @@ export async function loadTherapyPreview(avoidTopics: string[] = []): Promise<st
   try {
     const { data: recentSessions } = await supabase
       .from('sessions')
-      .select('insight, topic')
+      .select('id, insight, topic')
       .eq('user_id', getUserId())
       .order('created_at', { ascending: false })
       .limit(3);
 
-    const { data: userSessionIds } = await supabase
-      .from('sessions')
-      .select('id')
-      .eq('user_id', getUserId())
-      .order('created_at', { ascending: false })
-      .limit(3);
-    const ids = (userSessionIds || []).map((s: any) => s.id);
+    const ids = (recentSessions || []).map((s: any) => s.id);
     const { data: recentAnswers } = ids.length > 0
       ? await supabase
           .from('answers')

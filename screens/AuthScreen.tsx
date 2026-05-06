@@ -61,9 +61,14 @@ export function AuthScreen({ onDevBypass }: Props) {
       await GoogleSignin.hasPlayServices();
       const response = await GoogleSignin.signIn();
       if (response.type !== 'success') return;
+      const idToken = response.data?.idToken;
+      if (!idToken) {
+        Alert.alert('Sign in failed', 'Google did not return an ID token.');
+        return;
+      }
       const { error } = await supabase.auth.signInWithIdToken({
         provider: 'google',
-        token: response.data.idToken!,
+        token: idToken,
       });
       if (error) Alert.alert('Sign in failed', error.message);
     } catch (e: any) {

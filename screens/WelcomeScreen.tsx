@@ -1,13 +1,10 @@
-// screens/WelcomeScreen.tsx
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Dimensions,
+  View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
 import Svg, { Path, Rect, Line } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, fontFamilies } from '../theme';
-
-const { width: SCREEN_W } = Dimensions.get('window');
 
 type Props = {
   onDone: () => void;
@@ -15,8 +12,6 @@ type Props = {
 
 const GOLD = colors.accent;
 const DIM  = 'rgba(180,140,90,0.4)';
-
-// ─── Inline icon illustrations ───────────────────────────────────────────────
 
 function HomeIllustration() {
   return (
@@ -56,8 +51,6 @@ function JournalIllustration() {
   );
 }
 
-// ─── Slides ──────────────────────────────────────────────────────────────────
-
 const SLIDES = [
   {
     Icon: HomeIllustration,
@@ -85,8 +78,6 @@ const SLIDES = [
   },
 ];
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
 export function WelcomeScreen({ onDone }: Props) {
   const insets = useSafeAreaInsets();
   const [page, setPage] = useState(0);
@@ -95,10 +86,8 @@ export function WelcomeScreen({ onDone }: Props) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl, backgroundColor: colors.bg }]}>
-      {/* Wordmark */}
       <Text style={styles.wordmark}>UNPACK</Text>
 
-      {/* Slide content */}
       <View style={styles.slideContent}>
         <slide.Icon />
         <Text style={styles.tabLabel}>{slide.label}</Text>
@@ -106,14 +95,12 @@ export function WelcomeScreen({ onDone }: Props) {
         <Text style={styles.slideBody}>{slide.body}</Text>
       </View>
 
-      {/* Dots */}
       <View style={styles.dots}>
         {SLIDES.map((_, i) => (
           <View key={i} style={[styles.dot, i === page && styles.dotActive]} />
         ))}
       </View>
 
-      {/* CTA */}
       <TouchableOpacity
         style={styles.nextBtn}
         onPress={() => isLast ? onDone() : setPage(p => p + 1)}
@@ -121,7 +108,6 @@ export function WelcomeScreen({ onDone }: Props) {
         <Text style={styles.nextBtnText}>{isLast ? "LET'S GO" : 'NEXT'}</Text>
       </TouchableOpacity>
 
-      {/* Skip */}
       {!isLast && (
         <TouchableOpacity onPress={onDone} style={{ marginTop: spacing.lg }}>
           <Text style={styles.skipText}>skip</Text>

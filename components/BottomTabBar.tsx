@@ -1,15 +1,13 @@
 import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path, Rect, Circle, Line } from 'react-native-svg';
+import Svg, { Path, Rect, Line } from 'react-native-svg';
 import { colors } from '../theme';
 
 export type TabId = 0 | 1 | 2 | 3 | 4;
 
-const GOLD = colors.accent;        // #b48c5a
+const GOLD = colors.accent;
 const DIM  = 'rgba(180,140,90,0.28)';
-
-// ─── Custom SVG icons ────────────────────────────────────────────────────────
 
 function HomeIcon({ color }: { color: string }) {
   return (
@@ -21,7 +19,6 @@ function HomeIcon({ color }: { color: string }) {
 }
 
 function SessionIcon({ color }: { color: string }) {
-  // Diamond / sparkle shape
   return (
     <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
       <Path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2z"
@@ -65,8 +62,6 @@ function PenIcon({ color }: { color: string }) {
 }
 
 const ICONS = [HomeIcon, SessionIcon, TalkIcon, JournalIcon, PenIcon];
-
-// ─── Component ───────────────────────────────────────────────────────────────
 
 type Props = {
   activeTab: TabId;

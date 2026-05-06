@@ -100,7 +100,7 @@ export default function App() {
     stopVoiceRecording: _stopVoiceRecording,
   } = useVoice();
 
-  const { isSpeaking, ttsEnabled, setTtsEnabled, stopTTS, speakAndWait } = useTTS();
+  const { ttsEnabled, stopTTS, speakAndWait } = useTTS();
 
   const {
     streakDisplayValue, showFireEmoji, setShowStreakCelebration,
@@ -120,7 +120,6 @@ export default function App() {
   const therapyVoiceSubmitRef = useRef<((text: string) => void) | null>(null);
   const writingVoiceModeRef = useRef(false);
 
-  // Voice routing wrapper — routes transcribed text to the correct handler
   function startVoiceRecording(setterFn: any) {
     const context = sessionVoiceModeRef.current ? 'session'
       : therapyVoiceModeRef.current ? 'vent'

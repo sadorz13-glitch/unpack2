@@ -40,7 +40,7 @@ export function OnboardingScreen({ onComplete }: Props) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <View style={styles.inner}>
         <Text style={styles.headline}>Before we start.</Text>
-        <Text style={styles.sub}>Just the basicstyles.</Text>
+        <Text style={styles.sub}>Just the basics.</Text>
 
         <Text style={styles.label}>YOUR NAME</Text>
         <TextInput

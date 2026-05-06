@@ -73,12 +73,10 @@ export function TalkScreen({
   const [pinnedTherapyTopic, setPinnedTherapyTopic] = useState('');
   const [showPaywall, setShowPaywall] = useState(false);
 
-  // Always expose latest sendTherapyMessage to App's voice router
   useEffect(() => {
     therapyVoiceSubmitRef.current = sendTherapyMessage;
   });
 
-  // Load persisted topics on mount
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS).then(val => {
       if (val) { try { setHandledTopics(JSON.parse(val)); } catch {} }
@@ -88,7 +86,6 @@ export function TalkScreen({
     });
   }, []);
 
-  // Persist topics when they change
   useEffect(() => {
     if (handledTopics.length > 0) AsyncStorage.setItem(STORAGE_KEY_HANDLED_TOPICS, JSON.stringify(handledTopics));
   }, [handledTopics]);
@@ -97,7 +94,6 @@ export function TalkScreen({
     if (flaggedTopics.length > 0) AsyncStorage.setItem(STORAGE_KEY_FLAGGED_TOPICS, JSON.stringify(flaggedTopics));
   }, [flaggedTopics]);
 
-  // Derive pinnedTherapyTopic when therapyPreview changes
   useEffect(() => {
     if (!therapyPreview) return;
     callClaude(`Extract the core topic in 2-3 words, no punctuation: "${therapyPreview}"`, 15)
@@ -116,7 +112,6 @@ export function TalkScreen({
     setPinnedTherapyTopic('');
   }, [therapyResetTick]);
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [chatMessages]);
@@ -178,7 +173,6 @@ export function TalkScreen({
           .catch(() => {});
       }
 
-      // Extract and store topic (non-blocking)
       callClaude(`Extract the core topic of this sentence in 2-3 words, no punctuation: "${opening}"`, 20)
         .then(extractedTopic => {
           const newHandled = [...new Set([...handledTopics, extractedTopic])];

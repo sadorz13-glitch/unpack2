@@ -47,12 +47,6 @@ type Props = {
   writingVoiceModeRef?: React.MutableRefObject<boolean>;
 };
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso.replace(' ', 'T'));
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
 function wordCount(text: string): number {
   return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
 }
@@ -110,7 +104,6 @@ export function WritingScreen({
     }
   }, [isActive]);
 
-  // Reload after offline queue flush (journalRefreshTick increments on reconnect)
   React.useEffect(() => {
     if (journalRefreshTick && journalRefreshTick > 0) loadTodayEntries();
   }, [journalRefreshTick]);

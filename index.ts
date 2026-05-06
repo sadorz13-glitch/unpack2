@@ -1,8 +1,8 @@
-import * as Sentry from '@sentry/react-native';
 import { registerRootComponent } from 'expo';
 import App from './App';
 
 if (!__DEV__) {
+  const Sentry = require('@sentry/react-native');
   Sentry.init({
     dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
     environment: 'production',
@@ -13,4 +13,4 @@ if (!__DEV__) {
   });
 }
 
-registerRootComponent(__DEV__ ? App : Sentry.wrap(App));
+registerRootComponent(App);

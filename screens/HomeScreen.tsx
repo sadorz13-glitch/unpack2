@@ -1,4 +1,3 @@
-// screens/HomeScreen.tsx
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated,
@@ -69,7 +68,6 @@ export function HomeScreen({
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.base, paddingBottom: spacing.xl }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={styles.tabTitle}>Home</Text>
           <View style={styles.headerRight}>
@@ -82,15 +80,12 @@ export function HomeScreen({
           </View>
         </View>
 
-        {/* Start Session CTA */}
         <TouchableOpacity style={styles.sessionCta} onPress={onStartSession}>
           <Text style={styles.sessionCtaText}>START SESSION</Text>
         </TouchableOpacity>
 
-        {/* Bento Grid */}
         <View style={styles.bento}>
 
-          {/* Row 1: Streak — full width */}
           <View style={styles.wideTileWrapper}>
             <BlurCard style={styles.wideTile}>
               <View style={styles.streakInner}>
@@ -119,7 +114,6 @@ export function HomeScreen({
             </BlurCard>
           </View>
 
-          {/* Row 2: Talk It Out — full width */}
           <TouchableOpacity
             onPress={() => { if (sessionCountLoaded && sessionCount === 0) return; onOpenTalk(); }}
             activeOpacity={0.8}
@@ -141,7 +135,6 @@ export function HomeScreen({
             </BlurCard>
           </TouchableOpacity>
 
-          {/* Row 3: Wheel + Journal — half each */}
           <View style={styles.halfRow}>
             <View style={styles.halfTileWrapper}>
               <BlurCard style={styles.halfTile}>
@@ -165,7 +158,6 @@ export function HomeScreen({
             </TouchableOpacity>
           </View>
 
-          {/* Row 4: My Answers — full width */}
           <TouchableOpacity onPress={onOpenAnswers} activeOpacity={0.8} style={styles.wideTileWrapper}>
             <BlurCard style={styles.wideTile}>
               <Text style={styles.tileLabel}>MY ANSWERS</Text>
@@ -175,7 +167,6 @@ export function HomeScreen({
             </BlurCard>
           </TouchableOpacity>
 
-          {/* Row 5: Top Trait + Weekly Wheel */}
           <View style={styles.halfRow}>
             <View style={styles.halfTileWrapper}>
               <BlurCard style={styles.halfTile}>
@@ -236,12 +227,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.lg,
-  },
-  wordmark: {
-    color: colors.textSecondary,
-    fontSize: 11,
-    letterSpacing: 6,
-    fontFamily: undefined,
   },
   tabTitle: {
     fontFamily: fontFamilies.serifItalic,

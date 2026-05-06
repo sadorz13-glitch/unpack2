@@ -1,4 +1,3 @@
-// theme.ts
 import { Dimensions } from 'react-native';
 
 export const colors = {

@@ -1,4 +1,3 @@
-// screens/JournalScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
@@ -54,7 +53,6 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
   useEffect(() => {
     if (isActive) loadMonth(calendarMonth);
   }, [isActive, calendarMonth]);
-
 
   async function loadMonth(date: Date) {
     setCalendarLoading(true);
@@ -225,12 +223,10 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
-      {/* Tab title */}
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: insets.top + spacing.base, paddingBottom: spacing.sm }}>
         <Text style={styles.tabTitle}>Look Back</Text>
       </View>
 
-      {/* Header */}
       <View style={[styles.calHeader, { paddingTop: spacing.base }]}>
         <TouchableOpacity onPress={() => goMonth(-1)} style={styles.monthNav}>
           <Text style={styles.monthNavText}>‹</Text>
@@ -242,7 +238,6 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xl }}>
-        {/* Day labels */}
         <View style={styles.dayLabelRow}>
           {DAY_LABELS.map((l, i) => (
             <View key={i} style={{ width: cellSize, alignItems: 'center' }}>
@@ -251,7 +246,6 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
           ))}
         </View>
 
-        {/* Calendar grid */}
         {calendarLoading ? (
           <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.xl }} />
         ) : (
@@ -284,7 +278,6 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
           </View>
         )}
 
-        {/* Quick actions */}
         <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xl }}>
           <TouchableOpacity
             style={[styles.actionBtn, !selectedDay && styles.actionBtnDisabled]}
@@ -303,7 +296,6 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
           </TouchableOpacity>
         </View>
 
-        {/* Selected day detail */}
         {selectedDay && (
           <View style={{ marginTop: spacing.xl, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.lg }}>
             <Text style={styles.sectionLabel}>
