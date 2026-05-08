@@ -1,15 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
+import * as Sentry from '@sentry/react-native';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Animated, KeyboardAvoidingView, Platform, Share,
 } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
+import { requestMicPermission } from '../lib/micPermission';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { BlurCard } from '../components/BlurCard';
 import DeepDiveModal from '../components/DeepDiveModal';
+import { PaywallScreen } from './PaywallScreen';
+import InsightShareCard from '../components/InsightShareCard';
 import { colors, spacing, fontFamilies } from '../theme';
-import { QUESTIONS, STORAGE_KEY_PENDING_SESSION } from '../constants';
+import { QUESTIONS, STORAGE_KEY_PENDING_SESSION, TTS_HARD_TIMEOUT_MS, SESSION_BRIDGE_MIN_DISPLAY_MS, SESSION_BRIDGE_TEXT_WAIT_MS } from '../constants';
 import { callClaude } from '../lib/ai/client';
 import { getTransition, generateInsightAndTraits } from '../lib/api';
 import { saveSession, loadStreakAndCount } from '../lib/supabase';
@@ -58,6 +63,12 @@ type Props = {
   onSpeakAndWait: (text: string) => Promise<void>;
   sessionVoiceModeRef: React.MutableRefObject<boolean>;
   sessionVoiceSubmitRef: React.MutableRefObject<((text: string) => void) | null>;
+  onNavigateToVent?: (topic: string) => void;
+  isPremium?: boolean;
+  onPremiumStatusChanged?: () => Promise<void>;
+  hasSessionToday?: boolean;
+  onShowSessionPaywall?: () => void;
+  onSessionSaved?: (streak: number, total: number) => void;
 };
 
 type SessionView = 'entry' | 'question' | 'loading' | 'celebrate';
@@ -74,7 +85,8 @@ export function SessionScreen({
   userId, sessionCount, horoscopeContext, topic, traits, isRecording, isTranscribing,
   micPulseAnim, meteringLevelAnim, ttsEnabled, isConnected = true, onSessionComplete, onExit,
   onStartVoiceRecording, onStopVoiceRecording, onStopTTS, onSpeakAndWait, sessionVoiceModeRef,
-  sessionVoiceSubmitRef,
+  sessionVoiceSubmitRef, onNavigateToVent, isPremium = false, onPremiumStatusChanged,
+  hasSessionToday = false, onShowSessionPaywall, onSessionSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [view, setView] = useState<SessionView>('entry');
@@ -94,7 +106,9 @@ export function SessionScreen({
   const [celebrationStreak, setCelebrationStreak] = useState(0);
   const [celebrationTotal, setCelebrationTotal] = useState(0);
   const [showDeepDive, setShowDeepDive] = useState(false);
+  const [showDeepDivePaywall, setShowDeepDivePaywall] = useState(false);
   const sessionSavedRef = useRef(false);
+  const shareCardRef = useRef<View>(null);
 
   const flashAnim = useRef(new Animated.Value(0)).current;
   const streakBounce = useRef(new Animated.Value(0)).current;
@@ -124,13 +138,17 @@ export function SessionScreen({
   }
 
   async function beginSession() {
+    if (!isPremium && hasSessionToday) {
+      onShowSessionPaywall?.();
+      return;
+    }
     track('session_started');
     setView('question');
     if (sessionVoiceModeRef) {
       sessionVoiceModeRef.current = true;
       await new Promise(r => setTimeout(r, 300));
-      await Promise.race([onSpeakAndWait(currentQuestionRef.current), new Promise(r => setTimeout(r, 10000))]);
-      onStartVoiceRecording(setInput);
+      await Promise.race([onSpeakAndWait(currentQuestionRef.current), new Promise(r => setTimeout(r, TTS_HARD_TIMEOUT_MS))]);
+      if (sessionVoiceModeRef.current) onStartVoiceRecording(setInput);
     }
   }
 
@@ -146,8 +164,8 @@ export function SessionScreen({
     generateNextQuestion(newUsed, answersRef.current).then(q => setPregeneratedQuestion(q));
     if (sessionVoiceModeRef?.current) {
       onStopTTS();
-      await Promise.race([onSpeakAndWait(next), new Promise(r => setTimeout(r, 10000))]);
-      onStartVoiceRecording(setInput);
+      await Promise.race([onSpeakAndWait(next), new Promise(r => setTimeout(r, TTS_HARD_TIMEOUT_MS))]);
+      if (sessionVoiceModeRef.current) onStartVoiceRecording(setInput);
     }
   }
 
@@ -202,7 +220,7 @@ export function SessionScreen({
         insightShortText = result.insightShort || '';
         traitsResult = result.traits;
         topicResult = result.topic;
-      } catch { /* fallback values already set above */ }
+      } catch (e) { Sentry.captureException(e); /* fallback values already set above */ }
       setInsight(insightText);
       setInsightShort(insightShortText);
       setCurrentTraits(traitsResult);
@@ -216,6 +234,7 @@ export function SessionScreen({
         streakVal = streak;
         totalVal = total;
         sessionSavedRef.current = true;
+        onSessionSaved?.(streakVal, totalVal);
       } catch {
         await AsyncStorage.setItem(STORAGE_KEY_PENDING_SESSION, JSON.stringify({
           answers: newAllAnswers,
@@ -240,20 +259,25 @@ export function SessionScreen({
         const bridge = await getTransition(currentQuestionRef.current, userAnswer, next, horoscopeContext);
         setTransition(bridge);
         if (sessionVoiceModeRef?.current) {
-          await Promise.race([onSpeakAndWait(bridge), new Promise(r => setTimeout(r, 10000))]);
+          // Both must resolve: TTS (or 10s hard cap) AND a 4s minimum so free users
+          // (where onSpeakAndWait returns immediately) still see the bridge text.
+          await Promise.all([
+            Promise.race([onSpeakAndWait(bridge), new Promise(r => setTimeout(r, TTS_HARD_TIMEOUT_MS))]),
+            new Promise(r => setTimeout(r, SESSION_BRIDGE_MIN_DISPLAY_MS)),
+          ]);
         } else {
-          await new Promise(r => setTimeout(r, 2800));
+          await new Promise(r => setTimeout(r, SESSION_BRIDGE_TEXT_WAIT_MS));
         }
       } catch {
-        if (!sessionVoiceModeRef?.current) await new Promise(r => setTimeout(r, 2800));
+        await new Promise(r => setTimeout(r, sessionVoiceModeRef?.current ? SESSION_BRIDGE_MIN_DISPLAY_MS : SESSION_BRIDGE_TEXT_WAIT_MS));
       }
       setCurrentQuestion(next);
       currentQuestionRef.current = next;
       setTransition('');
       setTransitioning(false);
       if (sessionVoiceModeRef?.current) {
-        await Promise.race([onSpeakAndWait(next), new Promise(r => setTimeout(r, 10000))]);
-        onStartVoiceRecording(setInput);
+        await Promise.race([onSpeakAndWait(next), new Promise(r => setTimeout(r, TTS_HARD_TIMEOUT_MS))]);
+        if (sessionVoiceModeRef.current) onStartVoiceRecording(setInput);
       }
     }
   }
@@ -303,6 +327,10 @@ export function SessionScreen({
   }, [view]);
 
   async function handleKeepGoing() {
+    if (!isPremium && hasSessionToday) {
+      onShowSessionPaywall?.();
+      return;
+    }
     sessionSavedRef.current = false;
     batchAnswersRef.current = [];
     setBatchAnswers([]);
@@ -316,8 +344,8 @@ export function SessionScreen({
     generateNextQuestion(newUsed, answersRef.current).then(q => setPregeneratedQuestion(q));
     if (sessionVoiceModeRef) {
       sessionVoiceModeRef.current = true;
-      await Promise.race([onSpeakAndWait(next), new Promise(r => setTimeout(r, 10000))]);
-      onStartVoiceRecording(setInput);
+      await Promise.race([onSpeakAndWait(next), new Promise(r => setTimeout(r, TTS_HARD_TIMEOUT_MS))]);
+      if (sessionVoiceModeRef.current) onStartVoiceRecording(setInput);
     }
   }
 
@@ -351,10 +379,12 @@ export function SessionScreen({
   const handleShareInsight = async () => {
     if (!insight) return;
     try {
-      await Share.share({ message: insight });
-      track('insight_shared', { insight_length: insight.length });
+      const uri = await captureRef(shareCardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+      await Share.share({ url: uri });
+      track('insight_shared', { insight_length: insight.length, format: 'image' });
     } catch {
-      // user cancelled — do nothing
+      // Fallback to plain text if capture fails or user cancels
+      try { await Share.share({ message: insight }); } catch { /* user cancelled */ }
     }
   };
 
@@ -364,7 +394,7 @@ export function SessionScreen({
     if (!sessionSavedRef.current && answersRef.current.length > 0 && insight) {
       try {
         await saveSession(answersRef.current, insight, currentTraits || {}, currentTopic, insightShort);
-      } catch { /* best effort */ }
+      } catch (e) { Sentry.captureException(e); /* best effort */ }
     }
     onExit();
   }
@@ -477,7 +507,10 @@ export function SessionScreen({
             </Text>
           ) : null}
           {insight ? (
-            <TouchableOpacity style={styles.readMoreBtn} onPress={() => setShowDeepDive(true)}>
+            <TouchableOpacity style={styles.readMoreBtn} onPress={() => {
+              if (!isPremium) { setShowDeepDivePaywall(true); return; }
+              setShowDeepDive(true);
+            }}>
               <Text style={styles.readMoreTxt}>READ MORE</Text>
             </TouchableOpacity>
           ) : null}
@@ -505,7 +538,20 @@ export function SessionScreen({
           answers={allAnswers}
           traits={currentTraits ?? {}}
           recentInsights={[insight].filter(Boolean)}
+          topic={currentTopic}
+          onVent={onNavigateToVent}
         />
+        <PaywallScreen
+          visible={showDeepDivePaywall}
+          source="deep_dive"
+          onClose={() => setShowDeepDivePaywall(false)}
+          onSubscribed={async () => { await onPremiumStatusChanged?.(); setShowDeepDivePaywall(false); setShowDeepDive(true); }}
+        />
+
+        {/* Off-screen card for image capture — must be rendered to be captured */}
+        <View style={{ position: 'absolute', top: -9999, left: 0 }} pointerEvents="none">
+          <InsightShareCard ref={shareCardRef} insight={insight} />
+        </View>
       </View>
     );
   }
@@ -541,10 +587,14 @@ export function SessionScreen({
             inputMode === 'voice' ? (
               <View style={styles.voiceArea}>
                 <TouchableOpacity
-                  onPress={() => {
+                  onPress={async () => {
                     if (!isConnected) return;
-                    if (isRecording) onStopVoiceRecording(setInput);
-                    else onStartVoiceRecording(setInput);
+                    if (isRecording) {
+                      onStopVoiceRecording(setInput);
+                    } else {
+                      const granted = await requestMicPermission();
+                      if (granted) onStartVoiceRecording(setInput);
+                    }
                   }}
                   activeOpacity={isConnected ? 0.6 : 1}
                   style={{ opacity: isConnected ? 1 : 0.3 }}

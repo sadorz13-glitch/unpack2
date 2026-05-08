@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Animated,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Animated, Keyboard,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { callClaude, callClaudeChat, sanitizeInput } from '../lib/ai/client';
 import { loadTherapyPreview } from '../lib/ai/therapy';
 import { getUserId } from '../lib/auth';
-import { STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, FREE_VENT_MESSAGE_LIMIT as FREE_VENT_LIMIT } from '../constants';
+import { STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, FREE_VENT_MESSAGE_LIMIT as FREE_VENT_LIMIT, FORCE_STOP_MSG_DURATION_MS } from '../constants';
 import { track } from '../lib/analytics';
 import { PaywallScreen } from './PaywallScreen';
 
@@ -21,6 +21,7 @@ const I_DONT_KNOW_PHRASES = [
   "i don't understand why", "no idea",
 ];
 import type { ChatMessage } from '../types';
+import { requestMicPermission } from '../lib/micPermission';
 
 type Props = {
   horoscopeContext: string;
@@ -46,6 +47,9 @@ type Props = {
   isPremium?: boolean;
   onVentMessageSent?: () => Promise<void>;
   onPremiumStatusChanged?: () => Promise<void>;
+  ventTopicOverride?: string | null;
+  onVentTopicUsed?: () => void;
+  forceStopCount?: number;
 };
 
 export function TalkScreen({
@@ -60,6 +64,9 @@ export function TalkScreen({
   isPremium = false,
   onVentMessageSent,
   onPremiumStatusChanged,
+  ventTopicOverride,
+  onVentTopicUsed,
+  forceStopCount = 0,
 }: Props) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -72,6 +79,22 @@ export function TalkScreen({
   const [flaggedTopics, setFlaggedTopics] = useState<string[]>([]);
   const [pinnedTherapyTopic, setPinnedTherapyTopic] = useState('');
   const [showPaywall, setShowPaywall] = useState(false);
+  const [isMicMode, setIsMicMode] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [forceStopMsg, setForceStopMsg] = useState(false);
+
+  useEffect(() => {
+    if (!isRecording) { setRecordingSeconds(0); return; }
+    const id = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (!forceStopCount) return;
+    setForceStopMsg(true);
+    const t = setTimeout(() => setForceStopMsg(false), FORCE_STOP_MSG_DURATION_MS);
+    return () => clearTimeout(t);
+  }, [forceStopCount]);
 
   useEffect(() => {
     therapyVoiceSubmitRef.current = sendTherapyMessage;
@@ -107,6 +130,7 @@ export function TalkScreen({
     setTherapyInput('');
     setTherapyLoading(false);
     setInputMode('voice');
+    setIsMicMode(false);
     setHandledTopics([]);
     setFlaggedTopics([]);
     setPinnedTherapyTopic('');
@@ -116,13 +140,40 @@ export function TalkScreen({
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
   }, [chatMessages]);
 
+  useEffect(() => {
+    if (!ventTopicOverride) return;
+    therapyVoiceModeRef.current = false;
+    setIsMicMode(false);
+    setInputMode('type');
+    openTherapySession(ventTopicOverride);
+    onVentTopicUsed?.();
+  }, [ventTopicOverride]);
+
   const sessionStarted = chatMessages.length > 0 || therapyLoading;
 
-  async function openTherapySession(forceTopic = '') {
+  async function openTherapySession(forceTopic = '', existingOpening?: string) {
     track('vent_session_started');
     setChatMessages([]);
     setTherapyLoading(true);
     try {
+      // Fast path: user tapped the preview bubble — use the exact text they saw on the dashboard.
+      // Skip DB queries and the Claude call entirely.
+      if (existingOpening) {
+        setChatMessages([{ role: 'assistant', content: existingOpening }]);
+        if (ttsEnabled) {
+          speakAndWait(existingOpening)
+            .then(() => { if (therapyVoiceModeRef.current) onStartVoiceRecording(setTherapyInput); })
+            .catch(() => {});
+        }
+        if (pinnedTherapyTopic) {
+          const newHandled = [...new Set([...handledTopics, pinnedTherapyTopic])];
+          setHandledTopics(newHandled);
+          AsyncStorage.setItem(STORAGE_KEY_HANDLED_TOPICS, JSON.stringify(newHandled));
+          loadTherapyPreview(newHandled).then(line => { if (line) onTherapyPreviewChange(line); });
+        }
+        return;
+      }
+
       const uid = getUserId();
       const { data: recentSessions } = await supabase
         .from('sessions').select('id, insight, topic, traits, created_at')
@@ -158,9 +209,10 @@ export function TalkScreen({
         : ' Pick ONE specific thing the user said recently and open with an observation about it — referencing when they said it if it adds something.';
 
       const context =
-        horoscopeContext +
+        "You MUST end every single response with a probing question that pulls the conversation forward. NO EXCEPTIONS. Even responses under 30 tokens. Acknowledgment without a question is forbidden. Examples: 'What was happening for you in that moment?', 'Where do you feel that?', 'When did this start?', 'What would you say to them now?'" +
+        ' ' + horoscopeContext +
         ' You are a therapist with memory of past sessions.' + topicInstruction +
-        ' Then ask ONE short follow-up question about that specific thing only. Max 2 sentences. No fluff.' +
+        ' Max 2 sentences. No fluff.' +
         avoidStr + flaggedStr +
         '\n\nPast sessions:\n' + sessionHistory +
         '\n\nPast answers:\n' + answerHistory;
@@ -192,8 +244,9 @@ export function TalkScreen({
     const userMsg = (msgText ?? therapyInput).trim();
     if (!userMsg || therapyLoading) return;
     if (!canUseVent) { setShowPaywall(true); return; }
+    Keyboard.dismiss();
     await stopTTS();
-    onVentMessageSent?.();
+    if (!isPremium) onVentMessageSent?.();
     track('vent_message_sent', { freeRemaining: Math.max(0, freeMessagesRemaining - 1) });
     setTherapyInput('');
     const newMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: userMsg }];
@@ -206,8 +259,9 @@ export function TalkScreen({
 
     try {
       const sysPrompt =
-        horoscopeContext +
-        " You are a therapist having a real conversation. Follow the thread. Don't push — let them lead. Sometimes make an observation and leave space. Sometimes ask a question. Never do both. Max 2 short sentences. No fluff.";
+        "You MUST end every single response with a probing question that pulls the conversation forward. NO EXCEPTIONS. Even responses under 30 tokens. Acknowledgment without a question is forbidden. Examples: 'What was happening for you in that moment?', 'Where do you feel that?', 'When did this start?', 'What would you say to them now?'" +
+        ' ' + horoscopeContext +
+        " You are a therapist. Follow the thread. Be direct. Max 2 short sentences. No fluff.";
 
       const reply = await callClaudeChat(
         sysPrompt,
@@ -219,6 +273,8 @@ export function TalkScreen({
         speakAndWait(reply)
           .then(() => { if (therapyVoiceModeRef.current) onStartVoiceRecording(setTherapyInput); })
           .catch(() => {});
+      } else if (therapyVoiceModeRef.current) {
+        onStartVoiceRecording(setTherapyInput);
       }
     } catch {
       setChatMessages(prev => [
@@ -230,11 +286,25 @@ export function TalkScreen({
     }
   }
 
-  function handleStartTalking() {
+  function handleStartTalking(withMicMode = false) {
     if (sessionStarted) return;
     if (!canUseVent) { setShowPaywall(true); return; }
+    therapyVoiceModeRef.current = withMicMode;
+    if (withMicMode) setIsMicMode(true);
+    // Pass the preview text so the user lands in the exact conversation they tapped on.
+    openTherapySession(pinnedTherapyTopic, therapyPreview || undefined);
+  }
+
+  function exitMicMode() {
+    setIsMicMode(false);
+    therapyVoiceModeRef.current = false;
+    if (isRecording) onStopVoiceRecording(setTherapyInput);
+  }
+
+  function enterMicMode() {
+    setIsMicMode(true);
     therapyVoiceModeRef.current = true;
-    openTherapySession(pinnedTherapyTopic);
+    onStartVoiceRecording(setTherapyInput);
   }
 
   if (!canUseVent && !sessionStarted) {
@@ -287,7 +357,7 @@ export function TalkScreen({
       >
         {!sessionStarted ? (
           <TouchableOpacity
-            onPress={isConnected ? handleStartTalking : undefined}
+            onPress={isConnected ? () => handleStartTalking(false) : undefined}
             activeOpacity={isConnected ? 0.7 : 1}
             style={[styles.starterBubble, !isConnected && { opacity: 0.5 }]}
           >
@@ -332,39 +402,60 @@ export function TalkScreen({
         {inputMode === 'voice' ? (
           <View style={styles.voiceRow}>
             <TouchableOpacity
-              onPress={() => {
+              onPress={async () => {
                 if (!isConnected) return;
-                if (!sessionStarted) {
-                  handleStartTalking();
-                } else if (isRecording) {
-                  therapyVoiceModeRef.current = false;
-                  onStopVoiceRecording(setTherapyInput);
+                if (isMicMode) {
+                  exitMicMode();
+                } else if (!sessionStarted) {
+                  const granted = await requestMicPermission();
+                  if (granted) handleStartTalking(true);
                 } else {
-                  therapyVoiceModeRef.current = true;
-                  onStartVoiceRecording(setTherapyInput);
+                  const granted = await requestMicPermission();
+                  if (granted) enterMicMode();
                 }
               }}
               activeOpacity={isConnected ? 0.6 : 1}
               style={{ opacity: isConnected ? 1 : 0.3 }}
             >
-              <Animated.View style={[styles.micRing, { borderColor: isRecording ? 'rgba(180,140,90,0.5)' : colors.border, transform: [{ scale: micPulseAnim }] }]}>
-                <Animated.View style={[styles.micDot, { backgroundColor: isRecording ? colors.accent : '#2a2822', transform: [{ scale: meteringLevelAnim }] }]} />
+              <Animated.View style={[
+                styles.micRing,
+                {
+                  borderColor: isMicMode ? colors.accent : (isRecording ? 'rgba(180,140,90,0.5)' : colors.border),
+                  shadowColor: isMicMode ? colors.accent : 'transparent',
+                  shadowOpacity: isMicMode ? 0.6 : 0,
+                  shadowRadius: isMicMode ? 10 : 0,
+                  shadowOffset: { width: 0, height: 0 },
+                  transform: [{ scale: micPulseAnim }],
+                },
+              ]}>
+                <Animated.View style={[styles.micDot, { backgroundColor: isMicMode || isRecording ? colors.accent : '#2a2822', transform: [{ scale: meteringLevelAnim }] }]} />
               </Animated.View>
             </TouchableOpacity>
             {isTranscribing
               ? <ActivityIndicator color={colors.accent} size="small" style={{ marginTop: spacing.md }} />
-              : <Text style={styles.listeningLabel}>{isRecording ? 'LISTENING' : ''}</Text>
+              : <Text style={styles.listeningLabel}>{isMicMode ? (isRecording ? 'LISTENING' : 'MIC ON') : ''}</Text>
             }
-            {!isRecording && !isTranscribing && (
+            {isRecording && (
+              <Text style={styles.recordingTimer}>
+                {`0:${String(recordingSeconds).padStart(2, '0')}`}
+              </Text>
+            )}
+            {forceStopMsg && (
+              <Text style={styles.forceStopMsg}>Recording stopped — tap mic to record again</Text>
+            )}
+            {!isMicMode && !isRecording && !isTranscribing && (
               <TouchableOpacity onPress={() => { therapyVoiceModeRef.current = false; setInputMode('type'); }} style={{ marginTop: spacing.base }}>
                 <Text style={styles.ghostText}>TYPE INSTEAD</Text>
               </TouchableOpacity>
+            )}
+            {isMicMode && !isRecording && !isTranscribing && !forceStopMsg && (
+              <Text style={[styles.ghostText, { marginTop: spacing.base }]}>TAP MIC TO EXIT</Text>
             )}
           </View>
         ) : (
           <View style={styles.typeRow}>
             <TouchableOpacity onPress={() => setInputMode('voice')} style={{ paddingVertical: spacing.md }}>
-              <Text style={styles.ghostText}>MIC</Text>
+              <Text style={styles.ghostText}>MIC MODE</Text>
             </TouchableOpacity>
             <TextInput
               style={styles.textInput}
@@ -414,6 +505,8 @@ const styles = StyleSheet.create({
   typeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   textInput: { flex: 1, color: colors.textPrimary, fontSize: 14, borderBottomWidth: 1, borderBottomColor: '#2a2822', paddingVertical: spacing.md },
   ghostText: { color: colors.textGhost, fontSize: 9, letterSpacing: 3 },
+  recordingTimer: { color: colors.textMuted, fontSize: 9, letterSpacing: 2, marginTop: 4 },
+  forceStopMsg: { color: colors.textMuted, fontSize: 10, fontStyle: 'italic', marginTop: spacing.base, textAlign: 'center' },
   lockedSub: { color: colors.textMuted, fontSize: 14 },
   starterContainer: { flex: 1, justifyContent: 'center' },
   starterBubble: { alignItems: 'flex-start', gap: spacing.sm },

@@ -28,6 +28,7 @@ import { AuthScreen } from './screens/AuthScreen';
 import { SettingsSheet } from './components/SettingsSheet';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { BottomTabBar, TabId } from './components/BottomTabBar';
+import { PaywallScreen } from './screens/PaywallScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { SessionScreen } from './screens/SessionScreen';
 import { TalkScreen } from './screens/TalkScreen';
@@ -92,15 +93,18 @@ export default function App() {
   const [dayNote, setDayNote] = useState('');
   const [freshSession, setFreshSession] = useState(false);
   const [therapyResetTick, setTherapyResetTick] = useState(0);
+  const [ventTopicOverride, setVentTopicOverride] = useState<string | null>(null);
+  const [showSessionPaywall, setShowSessionPaywall] = useState(false);
+  const [showAnswersTick, setShowAnswersTick] = useState(0);
 
   // ── Hooks ────────────────────────────────────────────────────────────────
   const {
-    isRecording, isTranscribing, micPulseAnim, meteringLevelAnim,
+    isRecording, isTranscribing, forceStopCount, micPulseAnim, meteringLevelAnim,
     recordingRef, recordingSetterRef, startVoiceRecording: _startVoiceRecording,
     stopVoiceRecording: _stopVoiceRecording,
   } = useVoice();
 
-  const { ttsEnabled, stopTTS, speakAndWait } = useTTS();
+  const { ttsEnabled, stopTTS, speakAndWait, isSpeakingRef: ttsIsSpeakingRef } = useTTS();
 
   const {
     streakDisplayValue, showFireEmoji, setShowStreakCelebration,
@@ -108,6 +112,12 @@ export default function App() {
   } = useStreak();
 
   const { isConnected } = useNetworkStatus();
+
+  // Free users get a text-only experience — no audio at all (no Speech.speak fallback either)
+  function guardedSpeakAndWait(text: string): Promise<void> {
+    if (!isPremium) return Promise.resolve();
+    return speakAndWait(text);
+  }
   const [journalRefreshTick, setJournalRefreshTick] = useState(0);
   const prevConnectedRef = useRef(true);
 
@@ -119,6 +129,7 @@ export default function App() {
   const therapyVoiceModeRef = useRef(false);
   const therapyVoiceSubmitRef = useRef<((text: string) => void) | null>(null);
   const writingVoiceModeRef = useRef(false);
+  const streakAnimatedTodayRef = useRef('');
 
   function startVoiceRecording(setterFn: any) {
     const context = sessionVoiceModeRef.current ? 'session'
@@ -133,7 +144,7 @@ export default function App() {
       } else {
         setterFn((prev: string) => (prev ? prev + ' ' + text : text));
       }
-    });
+    }, () => ttsIsSpeakingRef.current);
   }
 
   function stopVoiceRecording(setterFn: any) {
@@ -381,6 +392,10 @@ export default function App() {
   const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'session', 2: 'vent', 3: 'journal', 4: 'write' };
 
   function handleTabPress(tab: TabId) {
+    if (tab === 1 && !isPremium && hasSessionToday) {
+      setShowSessionPaywall(true);
+      return;
+    }
     track('tab_changed', { tab: TAB_NAMES[tab] ?? tab });
     setActiveTab(tab);
     pagerRef.current?.setPage(tab);
@@ -476,10 +491,13 @@ export default function App() {
                 fireFloatAnim={fireFloatAnim}
                 fireOpacityAnim={fireOpacityAnim}
                 streakScaleAnim={streakScaleAnim}
-                onStartSession={() => { setActiveTab(1); pagerRef.current?.setPage(1); }}
+                onStartSession={() => {
+                  if (!isPremium && hasSessionToday) { setShowSessionPaywall(true); return; }
+                  setActiveTab(1); pagerRef.current?.setPage(1);
+                }}
                 onOpenTalk={() => { setActiveTab(2); pagerRef.current?.setPage(2); }}
                 onOpenJournal={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
-                onOpenAnswers={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
+                onOpenAnswers={() => { setActiveTab(3); pagerRef.current?.setPage(3); setShowAnswersTick(t => t + 1); }}
                 onOpenSettings={() => setShowSettings(true)}
                 userId={userId}
                 isPremium={isPremium}
@@ -506,14 +524,27 @@ export default function App() {
                 ttsEnabled={ttsEnabled}
                 isConnected={isConnected}
                 onSessionComplete={({ answers: _ans, insight: ins, insightShort: insShort, traits: tr, topic: tp, streak, total }) => {
-                  const wasFirstToday = !hasSessionToday;
                   const oldStreak = streakDays;
                   setInsight(ins); setInsightShort(insShort); setTraits(tr); setTopic(tp);
                   setStreakDays(streak); setSessionCount(total); setSessionCountLoaded(true);
                   setHasSessionToday(true); setFreshSession(true);
-                  if (wasFirstToday) {
-                    setShowStreakCelebration(true);
-                    runStreakFireAnimation(oldStreak, streak);
+                  const _d = new Date();
+                  const todayStr = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+                  if (streakAnimatedTodayRef.current === todayStr) {
+                    // already animated today — skip
+                  } else {
+                    AsyncStorage.getItem('lastStreakAnimDate').then(lastDate => {
+                      if (lastDate !== todayStr) {
+                        streakAnimatedTodayRef.current = todayStr;
+                        AsyncStorage.setItem('lastStreakAnimDate', todayStr)
+                          .then(() => {})
+                          .catch(e => console.warn('[App] lastStreakAnimDate write FAILED:', e));
+                        setShowStreakCelebration(true);
+                        runStreakFireAnimation(oldStreak, streak);
+                      }
+                    }).catch((e) => {
+                      console.warn('[App] lastStreakAnimDate read FAILED — suppressing animation:', e);
+                    });
                   }
                   AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS)
                     .then(val => { try { return val ? JSON.parse(val) : []; } catch { return []; } })
@@ -523,12 +554,23 @@ export default function App() {
                   setActiveTab(0); pagerRef.current?.setPage(0);
                 }}
                 onExit={() => { setActiveTab(0); pagerRef.current?.setPage(0); }}
+                onNavigateToVent={(tp) => { setVentTopicOverride(tp); setActiveTab(2); pagerRef.current?.setPage(2); }}
                 onStartVoiceRecording={startVoiceRecording}
                 onStopVoiceRecording={stopVoiceRecording}
                 onStopTTS={stopTTS}
-                onSpeakAndWait={speakAndWait}
+                onSpeakAndWait={guardedSpeakAndWait}
                 sessionVoiceModeRef={sessionVoiceModeRef}
                 sessionVoiceSubmitRef={sessionVoiceSubmitRef}
+                isPremium={isPremium}
+                onPremiumStatusChanged={refreshPremiumStatus}
+                hasSessionToday={hasSessionToday}
+                onShowSessionPaywall={() => setShowSessionPaywall(true)}
+                onSessionSaved={(streak, total) => {
+                  setStreakDays(streak);
+                  setSessionCount(total);
+                  setSessionCountLoaded(true);
+                  setHasSessionToday(true);
+                }}
               />
               </Sentry.ErrorBoundary>
             </View>
@@ -540,7 +582,7 @@ export default function App() {
                 horoscopeContext={horoscopeContext}
                 ttsEnabled={ttsEnabled}
                 stopTTS={stopTTS}
-                speakAndWait={speakAndWait}
+                speakAndWait={guardedSpeakAndWait}
                 sessionCount={sessionCount}
                 sessionCountLoaded={sessionCountLoaded}
                 therapyPreview={therapyPreview}
@@ -560,6 +602,9 @@ export default function App() {
                 isPremium={isPremium}
                 onVentMessageSent={incrementVentMessages}
                 onPremiumStatusChanged={refreshPremiumStatus}
+                ventTopicOverride={ventTopicOverride}
+                onVentTopicUsed={() => setVentTopicOverride(null)}
+                forceStopCount={forceStopCount}
               />
               </Sentry.ErrorBoundary>
             </View>
@@ -574,6 +619,7 @@ export default function App() {
                 onDayNoteChange={setDayNote}
                 isActive={activeTab === 3}
                 isConnected={isConnected}
+                showAnswersTick={showAnswersTick}
               />
               </Sentry.ErrorBoundary>
             </View>
@@ -596,6 +642,7 @@ export default function App() {
                 onStartVoiceRecording={startVoiceRecording}
                 onStopVoiceRecording={stopVoiceRecording}
                 writingVoiceModeRef={writingVoiceModeRef}
+                fontsLoaded={fontsLoaded ?? false}
               />
               </Sentry.ErrorBoundary>
             </View>
@@ -617,6 +664,12 @@ export default function App() {
           visible={showRevival}
           onClose={() => setShowRevival(false)}
           onConfirm={async () => { await handleStreakRevival(); setShowRevival(false); }}
+        />
+        <PaywallScreen
+          visible={showSessionPaywall}
+          source="session"
+          onClose={() => setShowSessionPaywall(false)}
+          onSubscribed={async () => { await refreshPremiumStatus(); setShowSessionPaywall(false); setActiveTab(1); pagerRef.current?.setPage(1); }}
         />
       </SafeAreaProvider>
     </GestureHandlerRootView>

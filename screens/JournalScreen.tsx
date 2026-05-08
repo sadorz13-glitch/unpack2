@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -23,12 +23,13 @@ type Props = {
   onDayNoteChange: (note: string) => void;
   isActive?: boolean;
   isConnected?: boolean;
+  showAnswersTick?: number;
 };
 
 type CalendarSession = { id: string; insight: string; topic: string; hasNote?: boolean };
 type SelectedDay = { date: string; session: CalendarSession | null; answers: any[] | null; dayNote: string };
 
-export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, isActive, isConnected = true }: Props) {
+export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, isActive, isConnected = true, showAnswersTick = 0 }: Props) {
   const insets = useSafeAreaInsets();
   const today = new Date().toLocaleDateString('en-CA');
   const [calendarMonth, setCalendarMonth] = useState(new Date());
@@ -53,6 +54,10 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
   useEffect(() => {
     if (isActive) loadMonth(calendarMonth);
   }, [isActive, calendarMonth]);
+  useEffect(() => {
+    if (!showAnswersTick) return;
+    openAnswersView();
+  }, [showAnswersTick]);
 
   async function loadMonth(date: Date) {
     setCalendarLoading(true);
@@ -92,6 +97,7 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
 
   async function saveEntry() {
     if (!currentEntry.trim()) return;
+    Keyboard.dismiss();
     const timeLabel = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     if (!isConnected) {
       await addPendingEntry(today, currentEntry.trim(), timeLabel);
@@ -109,6 +115,13 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
     setCurrentEntry('');
     setNoteSaved(true);
     setTimeout(() => setNoteSaved(false), 2000);
+  }
+
+  function openAnswersView() {
+    track('answers_viewed');
+    setDetailView('answers');
+    setAllAnswersLoading(true);
+    loadAllAnswers().then(data => { setAllAnswers(data); setAllAnswersLoading(false); });
   }
 
   async function openJournalForDay(date: string) {
@@ -286,12 +299,7 @@ export function JournalScreen({ userId, sessionCount, dayNote, onDayNoteChange, 
           >
             <Text style={[styles.actionBtnText, !selectedDay && styles.actionBtnTextDisabled]}>WRITE JOURNAL</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => {
-            track('answers_viewed');
-            setDetailView('answers');
-            setAllAnswersLoading(true);
-            loadAllAnswers().then(data => { setAllAnswers(data); setAllAnswersLoading(false); });
-          }}>
+          <TouchableOpacity style={styles.actionBtn} onPress={openAnswersView}>
             <Text style={styles.actionBtnText}>MY ANSWERS</Text>
           </TouchableOpacity>
         </View>

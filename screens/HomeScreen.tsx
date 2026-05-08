@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { BlurCard } from '../components/BlurCard';
 import { MiniRadar } from '../components/Radar';
+import PersonalityBreakdownModal from '../components/PersonalityBreakdownModal';
 import { ShimmerTile } from '../components/ShimmerTile';
 import { PaywallScreen } from './PaywallScreen';
 import { colors, spacing, fontFamilies, CARD_SIZE } from '../theme';
@@ -61,6 +62,8 @@ export function HomeScreen({
   const insets = useSafeAreaInsets();
   const topTrait = traits ? TRAITS.reduce((a: string, b: string) => ((traits[a] ?? 0) > (traits[b] ?? 0) ? a : b)) : null;
   const [showPaywall, setShowPaywall] = useState(false);
+  const [showPersonalityModal, setShowPersonalityModal] = useState(false);
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -136,17 +139,21 @@ export function HomeScreen({
           </TouchableOpacity>
 
           <View style={styles.halfRow}>
-            <View style={styles.halfTileWrapper}>
+            <TouchableOpacity
+              onPress={() => { if (traits) setShowPersonalityModal(true); }}
+              activeOpacity={traits ? 0.8 : 1}
+              style={styles.halfTileWrapper}
+            >
               <BlurCard style={styles.halfTile}>
                 <Text style={styles.tileLabel}>WHEEL</Text>
                 <View style={styles.tileCenter}>
-                  {freshSession && traits
-                    ? <MiniRadar traits={traits} />
+                  {traits
+                    ? <View pointerEvents="none"><MiniRadar traits={traits} /></View>
                     : <Text style={styles.previewText}>Complete{'\n'}a session</Text>
                   }
                 </View>
               </BlurCard>
-            </View>
+            </TouchableOpacity>
 
             <TouchableOpacity onPress={onOpenJournal} activeOpacity={0.8} style={styles.halfTileWrapper}>
               <BlurCard style={styles.halfTile}>
@@ -184,8 +191,12 @@ export function HomeScreen({
 
             <TouchableOpacity
               style={styles.halfTileWrapper}
-              activeOpacity={weeklyTraits && !isPremium ? 0.8 : 1}
-              onPress={() => { if (weeklyTraits && !isPremium) setShowPaywall(true); }}
+              activeOpacity={weeklyTraits ? 0.8 : 1}
+              onPress={() => {
+                if (!weeklyTraits) return;
+                if (!isPremium) { setShowPaywall(true); return; }
+                setShowWeeklyModal(true);
+              }}
             >
               <BlurCard style={styles.halfTile}>
                 <Text style={styles.tileLabel}>WEEKLY WHEEL</Text>
@@ -199,7 +210,9 @@ export function HomeScreen({
                     <Text style={[styles.tileSubLabel, { marginTop: spacing.sm }]}>PREMIUM</Text>
                   </View>
                 ) : (
-                  <MiniRadar traits={weeklyTraits} />
+                  <View style={styles.tileCenter}>
+                    <View pointerEvents="none"><MiniRadar traits={weeklyTraits} /></View>
+                  </View>
                 )}
               </BlurCard>
             </TouchableOpacity>
@@ -215,6 +228,24 @@ export function HomeScreen({
         </View>
 
       </ScrollView>
+
+      {traits && (
+        <PersonalityBreakdownModal
+          visible={showPersonalityModal}
+          onClose={() => setShowPersonalityModal(false)}
+          traits={traits}
+        />
+      )}
+      {weeklyTraits && (
+        <PersonalityBreakdownModal
+          visible={showWeeklyModal}
+          onClose={() => setShowWeeklyModal(false)}
+          traits={weeklyTraits}
+          eyebrow="THIS WEEK"
+          heading="Weekly Breakdown"
+          takeaway={`Your strongest trait this week is ${TRAITS.reduce((a, b) => (weeklyTraits[a] ?? 0) >= (weeklyTraits[b] ?? 0) ? a : b)}`}
+        />
+      )}
     </View>
   );
 }

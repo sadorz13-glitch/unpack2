@@ -12,7 +12,7 @@ import { colors, spacing, fontFamilies } from '../theme';
 
 type Props = {
   visible: boolean;
-  source: 'vent' | 'weekly_wheel';
+  source: 'vent' | 'weekly_wheel' | 'session' | 'deep_dive';
   onClose: () => void;
   onSubscribed: () => Promise<void>;
 };
@@ -107,9 +107,11 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
 
         <View style={styles.features}>
           {[
-            'Unlimited Vent sessions',
+            'Unlimited daily sessions',
+            'Voice AI — ElevenLabs audio responses',
+            'Deep Dive analysis after every session',
             'Weekly Wheel — track your patterns over time',
-            'Everything, without limits',
+            'Unlimited Vent messages',
           ].map(f => (
             <Text key={f} style={styles.feature}>· {f}</Text>
           ))}

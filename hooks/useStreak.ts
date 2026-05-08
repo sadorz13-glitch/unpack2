@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Animated } from 'react-native';
 
 export function useStreak() {
@@ -8,6 +8,13 @@ export function useStreak() {
   const streakScaleAnim = useRef(new Animated.Value(1)).current;
   const fireFloatAnim = useRef(new Animated.Value(0)).current;
   const fireOpacityAnim = useRef(new Animated.Value(0)).current;
+
+  // Safety net: clear fire emoji after animation duration in case callback doesn't fire
+  useEffect(() => {
+    if (!showFireEmoji) return;
+    const timer = setTimeout(() => setShowFireEmoji(false), 2600);
+    return () => clearTimeout(timer);
+  }, [showFireEmoji]);
 
   function runStreakFireAnimation(oldStreak: number, newStreak: number) {
     setStreakDisplayValue(oldStreak);

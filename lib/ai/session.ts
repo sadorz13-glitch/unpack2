@@ -61,21 +61,29 @@ export async function generateDeepDive(
     : '';
 
   const prompt =
-    `You are a warm, perceptive therapist-coach writing a personal reflection for someone who just completed a journaling session.\n\n` +
+    `You are a sharp, warm friend writing a tight personal note after someone's journaling session. Every word earns its place.\n\n` +
     `Their answers:\n${answers.map(a => `Q: ${a.question}\nA: ${a.answer}`).join('\n\n')}\n\n` +
     `Top traits: ${traitSummary}\n${pastContext}\n\n` +
     `Respond ONLY with valid JSON in this exact shape, no markdown fences:\n` +
     `{\n` +
-    `  "quote": "A short evocative phrase (8–12 words) that distils the emotional truth of their session. No quotation marks inside the string.",\n` +
-    `  "what_you_said": "2–3 sentences reflecting back the key things they expressed — specific, warm, not paraphrasing robotically.",\n` +
-    `  "the_pattern": "2–3 sentences naming the underlying emotional pattern or recurring theme you see across their answers and past sessions.",\n` +
-    `  "something_to_sit_with": "1–2 sentences — an honest, slightly uncomfortable observation they might be avoiding. Warm but direct.",\n` +
-    `  "reflection_prompt": "One open question (not rhetorical) to carry forward. Start with 'What' or 'When' or 'How'. No question mark needed at end."\n` +
+    `  "quote": "One evocative phrase, 8–12 words, that captures the emotional truth of this session. No quotation marks inside the string.",\n` +
+    `  "what_you_said": "1–2 sentences, max 35 words. Name one specific thing they said or revealed. Direct, not paraphrased.",\n` +
+    `  "the_pattern": "1–2 sentences, max 35 words. Name the underlying pattern you see. Sharp observation, not an explanation.",\n` +
+    `  "something_to_sit_with": "1–2 sentences, max 30 words. A reframe or uncomfortable truth they may be avoiding. Land it.",\n` +
+    `  "reflection_prompt": "One open question to carry forward. Start with What, When, or How. End with a question mark."\n` +
     `}`;
 
   try {
     const raw = await callClaude(prompt, 500);
-    return JSON.parse(raw.replace(/```json|```/g, '').trim()) as DeepDiveResult;
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    let parsed: DeepDiveResult;
+    try {
+      parsed = JSON.parse(cleaned) as DeepDiveResult;
+    } catch (parseErr) {
+      console.error('[DeepDive] JSON.parse failed:', parseErr, '\ncleaned string was:', cleaned);
+      throw parseErr;
+    }
+    return parsed;
   } catch (e) {
     Sentry.captureException(e);
     throw e;

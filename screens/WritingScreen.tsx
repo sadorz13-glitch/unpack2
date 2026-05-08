@@ -19,6 +19,7 @@ import { saveJournalEntry, updateJournalEntry } from '../lib/journalHelpers';
 import { addPendingEntry } from '../lib/offlineQueue';
 import { track } from '../lib/analytics';
 import { generateJournalPrompt, generateJournalReflection } from '../lib/journalAi';
+import { requestMicPermission } from '../lib/micPermission';
 import { supabase } from '../lib/supabase';
 import { getUserId } from '../lib/auth';
 
@@ -45,6 +46,7 @@ type Props = {
   onStartVoiceRecording?: (setterFn: any) => void;
   onStopVoiceRecording?: (setterFn: any) => void;
   writingVoiceModeRef?: React.MutableRefObject<boolean>;
+  fontsLoaded?: boolean;
 };
 
 function wordCount(text: string): number {
@@ -67,6 +69,7 @@ export function WritingScreen({
   isConnected = true, journalRefreshTick,
   isRecording, micPulseAnim, meteringLevelAnim,
   onStartVoiceRecording, onStopVoiceRecording, writingVoiceModeRef,
+  fontsLoaded = true,
 }: Props) {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
@@ -77,7 +80,7 @@ export function WritingScreen({
   const [isSaving, setIsSaving] = useState(false);
 
   const [prompt, setPrompt] = useState<string | null>(null);
-  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptLoading, setPromptLoading] = useState(true);
 
   const [reflection, setReflection] = useState<string | null>(null);
   const [reflectionLoading, setReflectionLoading] = useState(false);
@@ -96,8 +99,10 @@ export function WritingScreen({
   }, []);
 
   React.useEffect(() => {
-    if (isActive) loadTodayEntries();
-    else {
+    if (isActive) {
+      loadTodayEntries();
+      fetchPrompt();
+    } else {
       if (writingVoiceModeRef) writingVoiceModeRef.current = false;
       if (isRecording && onStopVoiceRecording) onStopVoiceRecording(setEntry);
       setView('editor'); setSearchQuery(''); setEditingId(null); setEditingText('');
@@ -124,6 +129,7 @@ export function WritingScreen({
   async function handleSave() {
     const text = entry.trim();
     if (!text) return;
+    Keyboard.dismiss();
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
     const timeLabel = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -260,32 +266,38 @@ export function WritingScreen({
               </TouchableOpacity>
             ) : null}
 
-            <TextInput
-              ref={inputRef}
-              style={styles.editor}
-              multiline
-              placeholder="Start writing..."
-              placeholderTextColor="rgba(255,255,255,0.2)"
-              value={entry}
-              onChangeText={setEntry}
-              autoCorrect
-              textAlignVertical="top"
-              scrollEnabled={false}
-            />
+            {fontsLoaded && (
+              <TextInput
+                ref={inputRef}
+                style={styles.editor}
+                multiline
+                placeholder="Start writing..."
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                value={entry}
+                onChangeText={setEntry}
+                autoCorrect
+                textAlignVertical="top"
+                scrollEnabled={false}
+                allowFontScaling={false}
+              />
+            )}
 
             <View style={styles.toolbar}>
               <Text style={styles.wordCount}>{wc} {wc === 1 ? 'word' : 'words'}</Text>
 
               {onStartVoiceRecording && micPulseAnim && meteringLevelAnim ? (
                 <TouchableOpacity
-                  onPress={() => {
+                  onPress={async () => {
                     if (!isConnected || !writingVoiceModeRef || !onStartVoiceRecording || !onStopVoiceRecording) return;
                     if (isRecording) {
                       writingVoiceModeRef.current = false;
                       onStopVoiceRecording(setEntry);
                     } else {
-                      writingVoiceModeRef.current = true;
-                      onStartVoiceRecording(setEntry);
+                      const granted = await requestMicPermission();
+                      if (granted) {
+                        writingVoiceModeRef.current = true;
+                        onStartVoiceRecording(setEntry);
+                      }
                     }
                   }}
                   activeOpacity={isConnected ? 0.6 : 1}
@@ -465,8 +477,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 17,
     color: '#fff',
-    lineHeight: 28,
+    lineHeight: Platform.OS === 'ios' ? 22 : 28,
     minHeight: 150,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   toolbar: {
     flexDirection: 'row',

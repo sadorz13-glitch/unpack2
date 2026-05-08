@@ -1,31 +1,54 @@
 import { useState, useRef, useEffect } from 'react';
 import { Animated } from 'react-native';
 import { Audio } from 'expo-av';
-import { SUPABASE_URL } from '../constants';
+import * as Sentry from '@sentry/react-native';
+import { SUPABASE_URL, VAD_HARD_TIMEOUT_MS } from '../constants';
 import { getAccessToken } from '../lib/auth';
+import { checkMicPermission } from '../lib/micPermission';
 
-function createVAD() {
+function createVAD(isTtsSpeaking?: () => boolean) {
   let baselineDb = -50;
   let isUserSpeaking = false;
   let speechOnsetTime: number | null = null;
   let speakingStartedAt: number | null = null;
   let silenceStartTime: number | null = null;
+  let silenceBreakCount = 0;
   const startTime = Date.now();
   let lastRecalibTime = startTime;
   const recalibSamples: number[] = [];
+  // Calibration window: extends when TTS is speaking, includes sanity check on exit
+  let calibrationStartTime = startTime;
+  let calibrationDone = false;
 
   return {
     process(level: number, onSpeechEnd: () => void): void {
       const now = Date.now();
-      const elapsed = now - startTime;
 
-      if (elapsed < 1500) {
-        recalibSamples.push(level);
-        if (recalibSamples.length >= 5) {
-          const sorted = [...recalibSamples].sort((a, b) => a - b);
-          const n = Math.max(1, Math.ceil(sorted.length * 0.3));
-          baselineDb = sorted.slice(0, n).reduce((s, v) => s + v, 0) / n;
+      if (!calibrationDone) {
+        const elapsedCalib = now - calibrationStartTime;
+        if (elapsedCalib < 1500) {
+          if (isTtsSpeaking?.()) {
+            // TTS active — throw away samples and restart window
+            calibrationStartTime = now;
+            recalibSamples.length = 0;
+          } else {
+            recalibSamples.push(level);
+            if (recalibSamples.length >= 5) {
+              const sorted = [...recalibSamples].sort((a, b) => a - b);
+              const n = Math.max(1, Math.ceil(sorted.length * 0.3));
+              baselineDb = sorted.slice(0, n).reduce((s, v) => s + v, 0) / n;
+            }
+          }
+          return;
         }
+        // Calibration window elapsed — sanity check
+        if (baselineDb > -25) {
+          calibrationStartTime = now;
+          recalibSamples.length = 0;
+          baselineDb = -50;
+          return;
+        }
+        calibrationDone = true;
         return;
       }
 
@@ -39,11 +62,11 @@ function createVAD() {
       }
 
       const speechThreshold = baselineDb + 12;
-      const silenceThreshold = baselineDb + 4;
+      const silenceThreshold = baselineDb + 12;
 
       if (!isUserSpeaking) {
         if (level > speechThreshold) {
-          if (speechOnsetTime === null) speechOnsetTime = now;
+          if (speechOnsetTime === null) { speechOnsetTime = now; }
           else if (now - speechOnsetTime >= 300) {
             isUserSpeaking = true;
             speakingStartedAt = speechOnsetTime;
@@ -54,19 +77,25 @@ function createVAD() {
         }
       } else {
         if (level < silenceThreshold) {
-          if (silenceStartTime === null) silenceStartTime = now;
-          else if (now - silenceStartTime >= 1500) {
+          silenceBreakCount = 0;
+          if (silenceStartTime === null) { silenceStartTime = now; }
+          else if (now - silenceStartTime >= 1000) {
             const speechDuration = silenceStartTime - (speakingStartedAt ?? silenceStartTime);
             if (speechDuration >= 500) {
               isUserSpeaking = false;
               speechOnsetTime = null;
               speakingStartedAt = null;
               silenceStartTime = null;
+              silenceBreakCount = 0;
               onSpeechEnd();
             }
           }
         } else {
-          silenceStartTime = null;
+          silenceBreakCount++;
+          if (silenceBreakCount >= 3) {
+            silenceStartTime = null;
+            silenceBreakCount = 0;
+          }
         }
       }
     },
@@ -76,6 +105,7 @@ function createVAD() {
 export function useVoice() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [forceStopCount, setForceStopCount] = useState(0);
   const [inputMode, setInputMode] = useState<'voice' | 'type'>('voice');
   const recordingRef = useRef<any>(null);
   const recordingSetterRef = useRef<any>(null);
@@ -83,6 +113,7 @@ export function useVoice() {
   const micPulseAnim = useRef(new Animated.Value(1)).current;
   const meteringLevelAnim = useRef(new Animated.Value(1)).current;
   const onTranscribedRef = useRef<((text: string) => void) | null>(null);
+  const hardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (isRecording) {
@@ -98,11 +129,11 @@ export function useVoice() {
     }
   }, [isRecording]);
 
-  async function startVoiceRecording(setterFn: any, onTranscribed?: (text: string) => void) {
+  async function startVoiceRecording(setterFn: any, onTranscribed?: (text: string) => void, isTtsSpeaking?: () => boolean) {
     onTranscribedRef.current = onTranscribed ?? null;
     try {
       if (recordingRef.current) return;
-      const { granted } = await Audio.requestPermissionsAsync();
+      const granted = await checkMicPermission();
       if (!granted) return;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording } = await Audio.Recording.createAsync({
@@ -113,8 +144,16 @@ export function useVoice() {
       recordingSetterRef.current = setterFn;
       setIsRecording(true);
 
-      const vad = createVAD();
+      const vad = createVAD(isTtsSpeaking);
       vadRef.current = vad;
+
+      if (hardTimeoutRef.current) clearTimeout(hardTimeoutRef.current);
+      hardTimeoutRef.current = setTimeout(() => {
+        if (recordingRef.current) {
+          setForceStopCount(c => c + 1);
+          stopVoiceRecording(recordingSetterRef.current);
+        }
+      }, VAD_HARD_TIMEOUT_MS);
 
       recording.setProgressUpdateInterval(100);
       recording.setOnRecordingStatusUpdate((status: any) => {
@@ -131,13 +170,14 @@ export function useVoice() {
 
         vad.process(level, () => stopVoiceRecording(recordingSetterRef.current));
       });
-    } catch {}
+    } catch (e) { Sentry.captureException(e); }
   }
 
   async function stopVoiceRecording(setterFn: any) {
     const rec = recordingRef.current;
     if (!rec) return;
     recordingRef.current = null; // claim immediately — prevents double-stop race
+    if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
     try {
       vadRef.current = null;
       rec.setOnRecordingStatusUpdate(null);
@@ -193,6 +233,7 @@ export function useVoice() {
   return {
     isRecording,
     isTranscribing,
+    forceStopCount,
     inputMode,
     setInputMode,
     micPulseAnim,

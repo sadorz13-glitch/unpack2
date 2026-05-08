@@ -465,12 +465,20 @@ components/
 - Streak revival — "RECLAIM" button on streak tile when streak is 0 but yesterday had activity; $0.99 IAP via `RevivalModal`, records to `streak_revivals` table, streak recalculates immediately
 - Vent count is now server-authoritative — `profiles.vent_messages_used` column + `increment_vent_messages` RPC prevent reinstall bypass
 - Notification identifiers — daily reminder and streak reminders use named IDs, no longer call `cancelAllScheduledNotificationsAsync` (was wiping daily reminder): AuthScreen blocks sign-in, SessionScreen blocks session start, TalkScreen dims starter bubble, JournalScreen queues writes to AsyncStorage, WritingScreen blocks AI. OfflineBanner shown app-wide. Home cache serves stale data while loading. Pending session retries on reconnect.
+- Premium gating fully wired — 1 session/day for free users (`hasSessionToday` gate in `beginSession()` + `handleKeepGoing()`), 5 Vent messages (`profiles.vent_messages_used` server count), no Deep Dive, no TTS audio (`guardedSpeakAndWait` no-ops for free users). `PaywallScreen` modal wired at all gates.
+- Vent mic mode — hands-free conversational loop: mic auto-starts after TTS finishes, transcription auto-submits to `sendTherapyMessage`, TTS plays reply, repeat. 30s hard timeout with force-stop UI message. `therapyVoiceModeRef` / `therapyVoiceSubmitRef` route transcribed text to the vent bot.
+- Vent bot probing questions — system prompt leads with hard rule ("You MUST end every response with a probing question. NO EXCEPTIONS.") in both `openTherapySession` and `sendTherapyMessage`. Contradicting instructions removed.
+- Personality Wheel tap fixed — SVG was intercepting touches on iOS; wrapped `<MiniRadar>` in `<View pointerEvents="none">` so the parent `TouchableOpacity` receives the tap.
+- Session gate on "Keep Going" — `handleKeepGoing()` in `SessionScreen.tsx` now checks `!isPremium && hasSessionToday` and shows paywall, matching the `beginSession()` gate.
+- Streak animation fires once per day — guarded by `AsyncStorage` key `lastStreakAnimDate` (YYYY-MM-DD, manually constructed) + in-memory `streakAnimatedTodayRef` (prevents double-fire within the same launch).
+- VAD ambient baseline + hysteresis — 1.5s calibration window at startup (resets if TTS is speaking), `baselineDb + 12` for both onset and silence thresholds, 3-consecutive-sample hysteresis before silence can be broken. `forceStopCount` state in `useVoice` surfaces 30s timeouts to the UI.
+- Journal textbox iOS lineHeight — fixed displacement (text shifted down on first paint) by using `lineHeight: 22` on iOS instead of removing lineHeight entirely (which caused oversized text at system default).
 
 ---
 
 ## Known Bugs 🐛
 
-- **ElevenLabs TTS silent** — API call succeeds (base64 length 68604 confirmed), but audio doesn't play. Bug is in the `writeAsStringAsync` → `Audio.Sound.createAsync` → `playAsync` chain. Next step: add logs after each step to find which silently fails. (`speakAndWait` in App.tsx, around line 550)
+- **VAD silence detection in noisy environments** — after +12 dB silence threshold + 3-sample hysteresis fix, watch to confirm silence detection fires reliably. If ambient noise is very high, may need further tuning or per-device calibration.
 
 ---
 
@@ -519,7 +527,15 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 2. ✅ Account deletion — done 2026-04-30
 3. ✅ Offline handling — done 2026-04-30
 4. ✅ Sentry crash reporting — fully integrated (May 1)
-5. ❌ ElevenLabs TTS audio playback bug (see Known Bugs)
+5. ✅ ElevenLabs TTS audio playback — fixed (May 1)
+6. ✅ Premium gating system — 1 session/day, 5 Vent messages, paywall at all gates (May 2026)
+7. ✅ Vent mic mode — hands-free conversational loop with TTS (May 2026)
+8. ✅ Vent bot always asks a probing question — prompt hardened (May 2026)
+9. ✅ Session gate on "Keep Going" — `handleKeepGoing()` paywall check added (May 2026)
+10. ✅ Personality Wheel tap fixed — SVG touch interception resolved (May 2026)
+11. ✅ Streak animation once-per-day — AsyncStorage + in-memory ref guard (May 2026)
+12. ✅ VAD improvements — +12 dB thresholds, 3-sample hysteresis, 30s hard timeout (May 2026)
+13. ✅ Journal textbox iOS lineHeight fix — `lineHeight: 22` on iOS (May 2026)
 
 ### Blocked (unblock order: Apple verification → dev build → test auth)
 1. Test Sign in with Apple + Google Sign-In end-to-end
@@ -540,6 +556,9 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 3. ✅ Deep Dive modal ("Tell me more") — built May 3
 4. Weekly Wheel based on actual days not just session count
 5. Cross-session memory improvements in Talk It Out
+6. Remove 30s VAD hard timeout once VAD silence detection is confirmed stable in production
+7. Promotional entitlement flow — free trial or promo code path for RevenueCat (post App Store launch)
+8. Personality Wheel tap destination — build a breakdown screen (FullRadar + trait percentages + copy); currently navigates to JournalScreen as placeholder
 
 ---
 
@@ -579,6 +598,9 @@ Submitted 2026-04-30. Once domain is live, unlocks:
 - `increment_vent_messages` RPC uses `WHERE id = user_uuid` — verify the profiles PK column name matches (schema shows `user_id` but SQL says `id` — potential silent failure)
 - Deep Dive modal generates meaningful personalised output, not generic filler
 - Revival IAP shows "RECLAIM" button only when appropriate, disappears after successful purchase
+- VAD silence detection fires reliably in mixed noise environments — +12dB threshold + 3-sample hysteresis added but not yet stress-tested in loud rooms; if ambient noise stays above baseline+12 the silence will never lock
+- Vent mic auto-send loop: transcription → `sendTherapyMessage` → TTS → mic restart completes without getting stuck; 30s hard timeout fallback triggers `forceStopMsg` UI correctly
+- Premium gate correctly blocks free users at: `beginSession()`, `handleKeepGoing()`, 6th Vent message, Deep Dive button, TTS audio — all paths exercised
 
 ---
 

@@ -67,6 +67,14 @@ export const QUESTIONS: string[] = [
 
 export const TRAITS: string[] = ['Openness', 'Self-awareness', 'Avoidance', 'Ambition', 'Resilience'];
 
+export const TRAIT_DESCRIPTIONS: Record<string, string> = {
+  Openness: 'How readily you embrace new ideas, experiences, and perspectives.',
+  'Self-awareness': 'How clearly you understand your own emotions, patterns, and motivations.',
+  Avoidance: 'How often you sidestep difficult feelings or conversations.',
+  Ambition: 'How driven you are toward goals and personal growth.',
+  Resilience: 'How quickly you recover and adapt when things go wrong.',
+};
+
 export const STORAGE_KEY_HAS_SEEN_WELCOME = 'hasSeenWelcome';
 export const STORAGE_KEY_HANDLED_TOPICS = 'handledTopics';
 export const STORAGE_KEY_FLAGGED_TOPICS = 'flaggedTopics';
@@ -85,3 +93,15 @@ export const TERMS_URL = 'https://letsunpack.app/terms/';
 export const DEFAULT_NOTIF_HOUR = 20;
 export const DEFAULT_NOTIF_MINUTE = 0;
 export const NOTIF_PREFS_KEY = 'notif_prefs';
+
+// ─── TIMING CONSTANTS (ms) ────────────────────────────────────────────────────
+/** Hard cap on a single TTS playback before giving up and moving on */
+export const TTS_HARD_TIMEOUT_MS = 10000;
+/** How long the "recording stopped" force-stop message stays visible */
+export const FORCE_STOP_MSG_DURATION_MS = 4000;
+/** Minimum time to show a session bridge in voice mode (so free users see it too) */
+export const SESSION_BRIDGE_MIN_DISPLAY_MS = 4000;
+/** Bridge wait duration in text (non-voice) mode */
+export const SESSION_BRIDGE_TEXT_WAIT_MS = 2800;
+/** Hard timeout before VAD force-stops recording */
+export const VAD_HARD_TIMEOUT_MS = 30000;

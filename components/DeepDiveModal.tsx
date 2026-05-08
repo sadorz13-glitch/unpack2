@@ -10,6 +10,8 @@ type Props = {
   answers: Array<{ question: string; answer: string }>;
   traits: Record<string, number>;
   recentInsights: string[];
+  topic?: string;
+  onVent?: (topic: string) => void;
 };
 
 const SECTIONS: { key: keyof Omit<DeepDiveResult, 'quote' | 'reflection_prompt'>; label: string }[] = [
@@ -18,7 +20,7 @@ const SECTIONS: { key: keyof Omit<DeepDiveResult, 'quote' | 'reflection_prompt'>
   { key: 'something_to_sit_with', label: 'SOMETHING TO SIT WITH' },
 ];
 
-export default function DeepDiveModal({ visible, onClose, answers, traits, recentInsights }: Props) {
+export default function DeepDiveModal({ visible, onClose, answers, traits, recentInsights, topic, onVent }: Props) {
   const [result, setResult] = useState<DeepDiveResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -36,7 +38,8 @@ export default function DeepDiveModal({ visible, onClose, answers, traits, recen
         setResult(data);
         track('deep_dive_loaded');
       })
-      .catch(() => {
+      .catch((e: unknown) => {
+        console.error('[DeepDiveModal] generateDeepDive threw:', e);
         if (cancelled) return;
         setError(true);
         track('deep_dive_failed');
@@ -77,6 +80,16 @@ export default function DeepDiveModal({ visible, onClose, answers, traits, recen
                   <Text style={styles.sectionBody}>{result[key]}</Text>
                 </View>
               ))}
+
+              {onVent && topic ? (
+                <TouchableOpacity
+                  style={styles.ventBtn}
+                  onPress={() => { onVent(topic); onClose(); }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.ventText}>TALK ABOUT THIS →</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <View style={styles.reflectionWrap}>
                 <Text style={styles.reflectionLabel}>CARRY THIS WITH YOU</Text>
@@ -141,5 +154,17 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontStyle: 'italic',
     fontWeight: '300' as const,
+  },
+  ventBtn: {
+    alignSelf: 'flex-start',
+    marginBottom: 32,
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+  },
+  ventText: {
+    color: 'rgba(180,140,90,0.75)',
+    fontSize: 11,
+    letterSpacing: 2,
+    fontWeight: '500' as const,
   },
 });
