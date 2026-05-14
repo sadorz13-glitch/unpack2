@@ -1,24 +1,34 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, type Dispatch, type SetStateAction } from 'react';
 import * as Sentry from '@sentry/react-native';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Animated, KeyboardAvoidingView, Platform, Share,
+  ImageBackground,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { requestMicPermission } from '../lib/micPermission';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { X } from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
 import { BlurCard } from '../components/BlurCard';
 import DeepDiveModal from '../components/DeepDiveModal';
 import { PaywallScreen } from './PaywallScreen';
 import InsightShareCard from '../components/InsightShareCard';
-import { colors, spacing, fontFamilies } from '../theme';
+import { useTheme } from '../theme';
 import { QUESTIONS, STORAGE_KEY_PENDING_SESSION, TTS_HARD_TIMEOUT_MS, SESSION_BRIDGE_MIN_DISPLAY_MS, SESSION_BRIDGE_TEXT_WAIT_MS } from '../constants';
 import { callClaude } from '../lib/ai/client';
 import { getTransition, generateInsightAndTraits } from '../lib/api';
 import { saveSession, loadStreakAndCount } from '../lib/supabase';
 import { track } from '../lib/analytics';
+import { IconButton } from '../components/ui/IconButton';
+import { PillButton } from '../components/ui/PillButton';
+import { Card } from '../components/ui/Card';
+import { MicButton } from '../components/ui/MicButton';
+import { WaveformBar } from '../components/ui/WaveformBar';
+import { ProgressSegments } from '../components/ui/ProgressSegments';
+import { AILabel } from '../components/ui';
 
 const REQUEUE_KEY = 'requeuedQuestion';
 const FALLBACK_INSIGHT = "Stop waiting for the right moment — it's not coming.";
@@ -57,8 +67,8 @@ type Props = {
     total: number;
   }) => void;
   onExit: () => void;
-  onStartVoiceRecording: (setter: (t: string) => void) => void;
-  onStopVoiceRecording: (setter: (t: string) => void) => void;
+  onStartVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
+  onStopVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
   onStopTTS: () => void;
   onSpeakAndWait: (text: string) => Promise<void>;
   sessionVoiceModeRef: React.MutableRefObject<boolean>;
@@ -67,7 +77,6 @@ type Props = {
   isPremium?: boolean;
   onPremiumStatusChanged?: () => Promise<void>;
   hasSessionToday?: boolean;
-  onShowSessionPaywall?: () => void;
   onSessionSaved?: (streak: number, total: number) => void;
 };
 
@@ -86,9 +95,11 @@ export function SessionScreen({
   micPulseAnim, meteringLevelAnim, ttsEnabled, isConnected = true, onSessionComplete, onExit,
   onStartVoiceRecording, onStopVoiceRecording, onStopTTS, onSpeakAndWait, sessionVoiceModeRef,
   sessionVoiceSubmitRef, onNavigateToVent, isPremium = false, onPremiumStatusChanged,
-  hasSessionToday = false, onShowSessionPaywall, onSessionSaved,
+  hasSessionToday = false, onSessionSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors: themeColors, typography, spacing: sp, radius } = useTheme();
+
   const [view, setView] = useState<SessionView>('entry');
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [input, setInput] = useState('');
@@ -107,6 +118,7 @@ export function SessionScreen({
   const [celebrationTotal, setCelebrationTotal] = useState(0);
   const [showDeepDive, setShowDeepDive] = useState(false);
   const [showDeepDivePaywall, setShowDeepDivePaywall] = useState(false);
+  const [showKeepGoingPaywall, setShowKeepGoingPaywall] = useState(false);
   const sessionSavedRef = useRef(false);
   const shareCardRef = useRef<View>(null);
 
@@ -124,6 +136,7 @@ export function SessionScreen({
   const currentQuestionRef = useRef('');
   const batchAnswersRef = useRef<{ question: string; answer: string }[]>([]);
 
+  // REVIEW: verify [] is intentional — possible stale closure on prepareFirstQuestion
   useEffect(() => {
     prepareFirstQuestion();
   }, []);
@@ -139,7 +152,7 @@ export function SessionScreen({
 
   async function beginSession() {
     if (!isPremium && hasSessionToday) {
-      onShowSessionPaywall?.();
+      setShowKeepGoingPaywall(true);
       return;
     }
     track('session_started');
@@ -328,7 +341,7 @@ export function SessionScreen({
 
   async function handleKeepGoing() {
     if (!isPremium && hasSessionToday) {
-      onShowSessionPaywall?.();
+      setShowKeepGoingPaywall(true);
       return;
     }
     sessionSavedRef.current = false;
@@ -414,42 +427,159 @@ export function SessionScreen({
     }
   }
 
+  // ─── ENTRY / INTRO SCREEN ────────────────────────────────────────────────────
+
   if (view === 'entry') {
     return (
-      <View style={[styles.root, styles.entryRoot, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xl, backgroundColor: colors.bg }]}>
-        <Text style={styles.tabTitle}>Questions</Text>
-        <View style={styles.entryCenter}>
-          <Text style={styles.entryHeading}>ready to unpack?</Text>
-          <Text style={styles.entrySub}>
-            {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}
+      <ImageBackground
+        source={{ uri: 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=1080&q=90' }}
+        style={[
+          styles.screen,
+          {
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom + sp.xl,
+          },
+        ]}
+        resizeMode="cover"
+      >
+        {/* Blur layer — softens the hero image */}
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
+        {/* Dark gradient overlay — reduced opacity since BlurView already darkens */}
+        <View style={styles.introOverlay} />
+
+        {/* X close — top-left */}
+        <View style={[styles.topBar, { paddingHorizontal: sp['margin-screen'] }]}>
+          <IconButton
+            icon={X}
+            onPress={handleExit}
+            accessibilityLabel="Close session"
+          />
+        </View>
+
+        {/* Centered title block */}
+        <View style={styles.introCenter}>
+          <Text style={[typography.h1, { color: '#ffffff', textAlign: 'center' }]}>
+            Ready to Unpack?
+          </Text>
+          <Text
+            style={[
+              typography.body,
+              { color: 'rgba(255,255,255,0.9)', textAlign: 'center', marginTop: sp.md },
+            ]}
+          >
+            {new Date().toLocaleDateString('en-GB', {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })}
           </Text>
         </View>
-        <TouchableOpacity
-          style={[styles.beginBtn, !isConnected && styles.beginBtnDisabled]}
-          onPress={isConnected ? beginSession : undefined}
+
+        {/* Intention cards */}
+        <View style={[styles.introCards, { paddingHorizontal: sp['margin-screen'] }]}>
+          <Card style={styles.intentionCard}>
+            <Text style={[typography.h3, { color: themeColors['text-primary'] }]}>
+              Evening Reflection
+            </Text>
+            <Text
+              style={[
+                typography.caption,
+                { color: themeColors['text-tertiary'], marginTop: sp.xs },
+              ]}
+            >
+              Wind down and process the day
+            </Text>
+          </Card>
+          <Card style={styles.intentionCard}>
+            <Text style={[typography.h3, { color: themeColors['text-primary'] }]}>
+              Quick Check-in
+            </Text>
+            <Text
+              style={[
+                typography.caption,
+                { color: themeColors['text-tertiary'], marginTop: sp.xs },
+              ]}
+            >
+              Three questions, sharp and focused
+            </Text>
+          </Card>
+        </View>
+
+        {/* BEGIN SESSION button */}
+        <View
+          style={[
+            styles.introFooter,
+            { paddingHorizontal: sp['margin-screen'] },
+          ]}
         >
-          <Text style={styles.beginBtnText}>BEGIN SESSION</Text>
-        </TouchableOpacity>
-        {!isConnected && (
-          <Text style={styles.offlineHint}>No internet — sessions require a connection.</Text>
-        )}
-      </View>
+          {!isConnected && (
+            <Text
+              style={[
+                typography.caption,
+                {
+                  color: 'rgba(255,255,255,0.9)',
+                  textAlign: 'center',
+                  marginBottom: sp.md,
+                },
+              ]}
+            >
+              No internet — sessions require a connection.
+            </Text>
+          )}
+          <PillButton
+            label="BEGIN SESSION"
+            onPress={isConnected ? beginSession : () => undefined}
+            disabled={!isConnected}
+          />
+        </View>
+      </ImageBackground>
     );
   }
+
+  // ─── LOADING SCREEN ──────────────────────────────────────────────────────────
 
   if (view === 'loading') {
     return (
-      <View style={[styles.root, { paddingTop: insets.top + spacing.xl, backgroundColor: colors.bg }]}>
-        <Text style={styles.wordmark}>UNPACK</Text>
-        <ActivityIndicator color={colors.accent} style={{ marginBottom: spacing.lg }} />
-        <Text style={styles.loadingText}>reading between the lines...</Text>
+      <View
+        style={[
+          styles.screen,
+          styles.centered,
+          {
+            backgroundColor: themeColors['bg-primary'],
+            paddingTop: insets.top + sp.xl,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            typography.labelCaps,
+            { color: themeColors['text-tertiary'], marginBottom: sp.lg },
+          ]}
+        >
+          UNPACK
+        </Text>
+        <ActivityIndicator color={themeColors['accent-primary']} style={{ marginBottom: sp.lg }} />
+        <Text style={[typography.body, { color: themeColors['text-tertiary'], textAlign: 'center' }]}>
+          reading between the lines...
+        </Text>
       </View>
     );
   }
 
+  // ─── CELEBRATE SCREEN ────────────────────────────────────────────────────────
+
   if (view === 'celebrate') {
     return (
-      <View style={[styles.root, { paddingTop: insets.top, backgroundColor: colors.bg, overflow: 'hidden' }]}>
+      <View
+        style={[
+          styles.screen,
+          {
+            backgroundColor: themeColors['bg-primary'],
+            paddingTop: insets.top,
+            overflow: 'hidden',
+          },
+        ]}
+      >
         <Animated.View
           pointerEvents="none"
           style={[
@@ -492,46 +622,78 @@ export function SessionScreen({
           <Animated.Text
             style={[
               styles.celebrationNumber,
-              { transform: [{ scale: streakBounce }], opacity: streakOpacity },
+              { color: themeColors['text-primary'], transform: [{ scale: streakBounce }], opacity: streakOpacity },
             ]}
           >
             {celebrationStreak}
           </Animated.Text>
-          <Animated.Text style={[styles.celebrationLabel, { opacity: streakOpacity }]}>
+          <Animated.Text style={[styles.celebrationLabel, { color: themeColors['text-secondary'], opacity: streakOpacity }]}>
             DAY STREAK
           </Animated.Text>
 
           {insight ? (
-            <Text style={styles.celebrationInsight} numberOfLines={3}>
+            <View style={{ alignItems: 'flex-end', width: '100%', paddingHorizontal: 32, marginTop: 16 }}>
+              <AILabel />
+            </View>
+          ) : null}
+          {insight ? (
+            <Text style={[styles.celebrationInsight, { color: themeColors['text-tertiary'], marginTop: 0 }]} numberOfLines={3}>
               "{insight}"
             </Text>
           ) : null}
           {insight ? (
-            <TouchableOpacity style={styles.readMoreBtn} onPress={() => {
-              if (!isPremium) { setShowDeepDivePaywall(true); return; }
-              setShowDeepDive(true);
-            }}>
-              <Text style={styles.readMoreTxt}>READ MORE</Text>
+            <TouchableOpacity
+              style={styles.readMoreBtn}
+              onPress={() => {
+                if (!isPremium) { setShowDeepDivePaywall(true); return; }
+                setShowDeepDive(true);
+              }}
+              accessibilityLabel="Read more"
+              accessibilityRole="button"
+            >
+              <Text style={[styles.readMoreTxt, { color: themeColors['accent-gold'] }]}>READ MORE</Text>
             </TouchableOpacity>
           ) : null}
         </View>
 
         {insight ? (
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <TouchableOpacity style={styles.shareBtn} onPress={handleShareInsight}>
-              <Text style={styles.shareBtnText}>SHARE INSIGHT</Text>
+          <View style={{ paddingHorizontal: sp.lg }}>
+            <TouchableOpacity
+              style={[styles.shareBtn, { borderColor: themeColors['accent-gold'] }]}
+              onPress={handleShareInsight}
+              accessibilityLabel="Share insight"
+              accessibilityRole="button"
+            >
+              <Text style={[styles.shareBtnText, { color: themeColors['accent-gold'] }]}>SHARE INSIGHT</Text>
             </TouchableOpacity>
           </View>
         ) : null}
 
-        <View style={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.lg, gap: spacing.lg }}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleKeepGoing}>
-            <Text style={styles.primaryBtnText}>KEEP GOING →</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={{ alignSelf: 'center' }} onPress={handleDone}>
-            <Text style={styles.ghostText}>I'M DONE FOR NOW</Text>
+        <View
+          style={{
+            paddingHorizontal: sp['margin-screen'],
+            paddingBottom: insets.bottom + sp.lg,
+            gap: sp.lg,
+          }}
+        >
+          <PillButton label="KEEP GOING" onPress={handleKeepGoing} />
+          <TouchableOpacity
+            style={{ alignSelf: 'center' }}
+            onPress={handleDone}
+            accessibilityLabel="I'm done for now"
+            accessibilityRole="button"
+          >
+            <Text
+              style={[
+                typography.caption,
+                { color: themeColors['text-tertiary'] },
+              ]}
+            >
+              I'M DONE FOR NOW
+            </Text>
           </TouchableOpacity>
         </View>
+
         <DeepDiveModal
           visible={showDeepDive}
           onClose={() => setShowDeepDive(false)}
@@ -545,7 +707,20 @@ export function SessionScreen({
           visible={showDeepDivePaywall}
           source="deep_dive"
           onClose={() => setShowDeepDivePaywall(false)}
-          onSubscribed={async () => { await onPremiumStatusChanged?.(); setShowDeepDivePaywall(false); setShowDeepDive(true); }}
+          onSubscribed={async () => {
+            await onPremiumStatusChanged?.();
+            setShowDeepDivePaywall(false);
+            setShowDeepDive(true);
+          }}
+        />
+        <PaywallScreen
+          visible={showKeepGoingPaywall}
+          source="session"
+          onClose={() => setShowKeepGoingPaywall(false)}
+          onSubscribed={async () => {
+            await onPremiumStatusChanged?.();
+            setShowKeepGoingPaywall(false);
+          }}
         />
 
         {/* Off-screen card for image capture — must be rendered to be captured */}
@@ -556,89 +731,196 @@ export function SessionScreen({
     );
   }
 
+  // ─── QUESTION SCREEN (+ BRIDGE) ──────────────────────────────────────────────
+
   return (
     <PanGestureHandler onHandlerStateChange={handleEdgeSwipe}>
       <KeyboardAvoidingView
-        style={[styles.root, { backgroundColor: colors.bg }]}
+        style={[styles.screen, { backgroundColor: themeColors['bg-primary'] }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={40}
       >
         <ScrollView
-          contentContainerStyle={[styles.questionScroll, { paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.lg }]}
+          contentContainerStyle={[
+            styles.questionScroll,
+            {
+              paddingTop: insets.top + sp.lg,
+              paddingBottom: insets.bottom + sp.lg,
+              paddingHorizontal: sp['margin-screen'],
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.sessionHeader}>
-            <TouchableOpacity onPress={handleExit}>
-              <Text style={styles.exitText}>EXIT SESSION</Text>
-            </TouchableOpacity>
-            <Text style={styles.qProgress}>Q{questionNumber}</Text>
+          {/* Top bar: X close */}
+          <View style={styles.questionTopBar}>
+            <IconButton
+              icon={X}
+              onPress={handleExit}
+              accessibilityLabel="Exit session"
+            />
           </View>
 
+          {/* BRIDGE SCREEN: transitioning between questions */}
           {transitioning ? (
-            <>
-              <Text style={styles.transition}>{transition}</Text>
-              <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.xl }} />
-            </>
+            <View style={styles.bridgeContainer}>
+              <Text
+                style={[
+                  typography.h2,
+                  {
+                    color: themeColors['text-primary'],
+                    textAlign: 'center',
+                  },
+                ]}
+              >
+                {transition === '...' ? '' : transition}
+              </Text>
+              {transition === '...' && (
+                <ActivityIndicator
+                  color={themeColors['accent-primary']}
+                  style={{ marginTop: sp.xl }}
+                />
+              )}
+            </View>
           ) : (
-            <Text style={styles.question}>Tell me... {currentQuestion}</Text>
+            <>
+              {/* Step indicator */}
+              <View style={styles.stepBlock}>
+                <Text
+                  style={[
+                    typography.labelCaps,
+                    { color: themeColors['text-tertiary'], textAlign: 'center' },
+                  ]}
+                >
+                  STEP {Math.min(questionNumber, 3)} OF 3
+                </Text>
+                <ProgressSegments
+                  total={3}
+                  current={Math.min(questionNumber, 3)}
+                  style={{ marginTop: sp.sm }}
+                />
+              </View>
+
+              {/* Question text */}
+              <Text
+                style={[
+                  typography.h1,
+                  {
+                    color: themeColors['text-primary'],
+                    textAlign: 'center',
+                    marginTop: sp['2xl'],
+                    marginBottom: sp['2xl'],
+                  },
+                ]}
+              >
+                {currentQuestion}
+              </Text>
+
+              {/* Voice / type input area */}
+              {inputMode === 'voice' ? (
+                <View style={styles.voiceArea}>
+                  <MicButton
+                    active={isRecording}
+                    onPress={async () => {
+                      if (!isConnected) return;
+                      if (isRecording) {
+                        onStopVoiceRecording(setInput);
+                      } else {
+                        const granted = await requestMicPermission();
+                        if (granted) onStartVoiceRecording(setInput);
+                      }
+                    }}
+                    style={!isConnected ? { opacity: 0.3 } : undefined}
+                  />
+
+                  {isTranscribing ? (
+                    <ActivityIndicator
+                      color={themeColors['accent-primary']}
+                      size="small"
+                      style={{ marginTop: sp.md }}
+                    />
+                  ) : (
+                    <TouchableOpacity
+                      style={{ marginTop: sp.lg }}
+                      onPress={() => {
+                        if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
+                        setInputMode('type');
+                      }}
+                    >
+                      <Text
+                        style={[
+                          typography.caption,
+                          { color: themeColors['text-tertiary'] },
+                        ]}
+                      >
+                        TAP TO TYPE INSTEAD
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.typeArea}>
+                  <TextInput
+                    style={[
+                      styles.textInput,
+                      {
+                        color: themeColors['text-primary'],
+                        borderBottomColor: themeColors['border-strong'],
+                      },
+                    ]}
+                    placeholder="be honest..."
+                    placeholderTextColor={themeColors['text-tertiary']}
+                    value={input}
+                    onChangeText={setInput}
+                    multiline
+                    blurOnSubmit={false}
+                  />
+                  <View style={styles.typeActions}>
+                    <TouchableOpacity onPress={() => setInputMode('voice')}>
+                      <Text
+                        style={[
+                          typography.caption,
+                          { color: themeColors['text-tertiary'] },
+                        ]}
+                      >
+                        USE MIC
+                      </Text>
+                    </TouchableOpacity>
+                    <PillButton
+                      label="CONTINUE"
+                      onPress={() => submitAnswer()}
+                      style={{ flex: 0, paddingHorizontal: 24, height: 44 }}
+                    />
+                  </View>
+                </View>
+              )}
+
+              {/* Skip question */}
+              <TouchableOpacity onPress={skipQuestion} style={styles.skipBtn}>
+                <Text
+                  style={[
+                    typography.caption,
+                    { color: themeColors['text-tertiary'], textAlign: 'center' },
+                  ]}
+                >
+                  this question doesn't sit right with me
+                </Text>
+              </TouchableOpacity>
+            </>
           )}
 
-          {!transitioning && (
-            inputMode === 'voice' ? (
-              <View style={styles.voiceArea}>
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (!isConnected) return;
-                    if (isRecording) {
-                      onStopVoiceRecording(setInput);
-                    } else {
-                      const granted = await requestMicPermission();
-                      if (granted) onStartVoiceRecording(setInput);
-                    }
-                  }}
-                  activeOpacity={isConnected ? 0.6 : 1}
-                  style={{ opacity: isConnected ? 1 : 0.3 }}
-                >
-                  <Animated.View style={[styles.micRing, { borderColor: isRecording ? 'rgba(180,140,90,0.5)' : colors.border, transform: [{ scale: micPulseAnim }] }]}>
-                    <Animated.View style={[styles.micDot, { backgroundColor: isRecording ? colors.accent : '#2a2822', transform: [{ scale: meteringLevelAnim }] }]} />
-                  </Animated.View>
-                </TouchableOpacity>
-                {isTranscribing
-                  ? <ActivityIndicator color={colors.accent} size="small" style={{ marginTop: spacing.base }} />
-                  : <Text style={styles.listeningText}>{isRecording ? 'TAP TO SEND' : ''}</Text>
-                }
-                {!isRecording && !isTranscribing && (
-                  <TouchableOpacity onPress={() => { if (sessionVoiceModeRef) sessionVoiceModeRef.current = false; setInputMode('type'); }} style={{ marginTop: spacing.lg }}>
-                    <Text style={styles.ghostText}>TYPE INSTEAD</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ) : (
-              <View style={{ width: '100%' }}>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="be honest..."
-                  placeholderTextColor={colors.textGhost}
-                  value={input}
-                  onChangeText={setInput}
-                  multiline
-                  blurOnSubmit={false}
-                />
-                <View style={styles.textInputActions}>
-                  <TouchableOpacity onPress={() => setInputMode('voice')}>
-                    <Text style={styles.ghostText}>USE MIC</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.primaryBtn} onPress={() => submitAnswer()}>
-                    <Text style={styles.primaryBtnText}>CONTINUE →</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )
-          )}
-          {!transitioning && (
-            <TouchableOpacity onPress={skipQuestion} style={styles.skipBtn}>
-              <Text style={styles.skipText}>this question doesn't sit right with me</Text>
-            </TouchableOpacity>
+          {/* Waveform — shown when recording */}
+          {isRecording && !transitioning && (
+            <View style={styles.waveformSection}>
+              <WaveformBar active={isRecording} amplitude={0} />
+              <Text
+                style={[
+                  typography.labelCaps,
+                  { color: themeColors['text-tertiary'], marginTop: sp.sm, textAlign: 'center' },
+                ]}
+              >
+                LISTENING...
+              </Text>
+            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -647,70 +929,122 @@ export function SessionScreen({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  questionScroll: { alignItems: 'center', paddingHorizontal: spacing.xl, flexGrow: 1 },
-  sessionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: spacing.xl },
-  wordmark: { color: colors.textMuted, fontSize: 11, letterSpacing: 6, textAlign: 'center', marginBottom: spacing.xl },
-  tabTitle: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 22,
-    color: colors.accent,
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.lg,
+  screen: {
+    flex: 1,
   },
-  qProgress: { color: colors.textGhost, fontSize: 9, letterSpacing: 4 },
-  exitText: { color: colors.textGhost, fontSize: 9, letterSpacing: 3 },
-  question: { fontFamily: fontFamilies.serifItalic, fontSize: 22, color: colors.textPrimary, textAlign: 'center', lineHeight: 32, marginBottom: spacing.xl },
-  transition: { fontFamily: fontFamilies.serifItalic, fontSize: 18, color: colors.accent, textAlign: 'center', lineHeight: 28 },
-  voiceArea: { alignItems: 'center', width: '100%', paddingVertical: spacing.base },
-  micRing: { width: 64, height: 64, borderRadius: 32, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  micDot: { width: 7, height: 7, borderRadius: 3.5 },
-  listeningText: { color: colors.accent, fontSize: 9, letterSpacing: 3, marginTop: spacing.md },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // ─── Intro (entry) ────────────────────────────────────────────────────────
+  introOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 56,
+  },
+  introCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  introCards: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  intentionCard: {
+    minHeight: 0,
+    padding: 20,
+  },
+  introFooter: {
+    paddingBottom: 0,
+  },
+  // ─── Question ─────────────────────────────────────────────────────────────
+  questionScroll: {
+    flexGrow: 1,
+    alignItems: 'center',
+  },
+  questionTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 8,
+  },
+  stepBlock: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  voiceArea: {
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 16,
+  },
+  typeArea: {
+    width: '100%',
+    marginTop: 8,
+  },
   textInput: {
-    color: colors.textPrimary, fontSize: 15,
-    borderBottomWidth: 1, borderBottomColor: colors.textGhost,
-    paddingVertical: spacing.md, marginBottom: spacing.base,
-    minHeight: 60, maxHeight: 160, textAlignVertical: 'top', alignSelf: 'stretch',
+    fontSize: 16,
+    borderBottomWidth: 1,
+    paddingVertical: 12,
+    marginBottom: 12,
+    minHeight: 60,
+    maxHeight: 160,
+    textAlignVertical: 'top',
+    alignSelf: 'stretch',
   },
-  textInputActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' },
-  primaryBtn: { borderWidth: 1, borderColor: 'rgba(180,140,90,0.4)', borderRadius: 2, paddingVertical: spacing.base, paddingHorizontal: spacing.xl },
-  primaryBtnText: { color: colors.accent, fontSize: 11, letterSpacing: 6 },
-  ghostText: { color: colors.textGhost, fontSize: 9, letterSpacing: 3 },
-  loadingText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
-  entryRoot: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg },
-  entryCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
-  entryHeading: { fontFamily: fontFamilies.serifItalic, fontSize: 28, color: colors.textPrimary, textAlign: 'center' },
-  entrySub: { color: colors.textGhost, fontSize: 9, letterSpacing: 4 },
-  beginBtn: { borderWidth: 1, borderColor: 'rgba(180,140,90,0.4)', borderRadius: 2, paddingVertical: spacing.base, paddingHorizontal: spacing.xxl, alignItems: 'center' },
-  beginBtnDisabled: { opacity: 0.3 },
-  beginBtnText: { color: colors.accent, fontSize: 11, letterSpacing: 6 },
-  offlineHint: { color: colors.textMuted, fontSize: 11, letterSpacing: 0.3, marginTop: spacing.md, textAlign: 'center' },
-  skipBtn: { marginTop: spacing.xl, paddingVertical: spacing.md, alignSelf: 'center' },
-  skipText: { color: 'rgba(107,101,96,0.35)', fontSize: 10, letterSpacing: 1, textAlign: 'center' },
+  typeActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  skipBtn: {
+    marginTop: 32,
+    paddingVertical: 12,
+    alignSelf: 'center',
+  },
+  waveformSection: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  // ─── Bridge ───────────────────────────────────────────────────────────────
+  bridgeContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 48,
+    width: '100%',
+  },
+  // ─── Celebration ──────────────────────────────────────────────────────────
   celebrationNumber: {
-    fontFamily: fontFamilies.serifItalic,
+    fontFamily: 'PlayfairDisplay_700Bold_Italic',
     fontSize: 96,
     fontWeight: '900',
-    color: '#fff',
     lineHeight: 100,
     letterSpacing: -4,
-    marginTop: spacing.base,
+    marginTop: 16,
   },
   celebrationLabel: {
-    fontSize: 10,
+    fontSize: 12,
     letterSpacing: 5,
-    color: 'rgba(255,255,255,0.3)',
     textTransform: 'uppercase',
-    marginBottom: spacing.xl,
+    marginBottom: 32,
   },
   celebrationInsight: {
-    fontFamily: fontFamilies.serifItalic,
+    fontFamily: 'PlayfairDisplay_700Bold_Italic',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
     textAlign: 'center',
     lineHeight: 22,
-    paddingHorizontal: spacing.xl,
-    marginTop: spacing.base,
+    paddingHorizontal: 32,
+    marginTop: 16,
   },
   shareBtn: {
     borderWidth: 1,
@@ -724,10 +1058,17 @@ const styles = StyleSheet.create({
   },
   shareBtnText: {
     color: 'rgba(180,140,90,0.9)',
-    fontSize: 11,
+    fontSize: 12,
     letterSpacing: 2,
     fontWeight: '500' as const,
   },
-  readMoreBtn: { marginTop: 12, alignSelf: 'center' },
-  readMoreTxt: { color: 'rgba(180,140,90,0.6)', fontSize: 10, letterSpacing: 2 },
+  readMoreBtn: {
+    marginTop: 12,
+    alignSelf: 'center',
+  },
+  readMoreTxt: {
+    color: 'rgba(180,140,90,0.6)',
+    fontSize: 12,
+    letterSpacing: 2,
+  },
 });

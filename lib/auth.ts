@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from './supabase/client';
 
 let _userId: string | null = null;
 
@@ -73,7 +73,7 @@ export function buildHoroscopeContext(dob: string | null | undefined): string {
   return ZODIAC_CONTEXTS[sign] || '';
 }
 
-export async function saveProfile(name: string, dob: string): Promise<void> {
+export async function saveProfile(name: string, dob = ''): Promise<void> {
   if (!_userId) throw new Error('Not authenticated');
   await supabase.from('profiles').upsert({ user_id: _userId, name, dob });
 }

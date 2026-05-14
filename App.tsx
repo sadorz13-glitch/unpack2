@@ -1,12 +1,14 @@
 import 'react-native-url-polyfill/auto';
 import * as Sentry from '@sentry/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import {
-  View, BackHandler, Platform, Alert,
+  View, BackHandler, Platform, Alert, Modal,
 } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
-import { useFonts, DMSerifDisplay_400Regular, DMSerifDisplay_400Regular_Italic } from '@expo-google-fonts/dm-serif-display';
+import { useFonts, PlayfairDisplay_700Bold, PlayfairDisplay_700Bold_Italic } from '@expo-google-fonts/playfair-display';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { ThemeProvider } from './theme';
 import PagerView from 'react-native-pager-view';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,14 +16,14 @@ import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 
 import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION, NOTIF_PREFS_KEY, DEFAULT_NOTIF_HOUR, DEFAULT_NOTIF_MINUTE, REVIVAL_PRODUCT_ID } from './constants';
-import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession, recordStreakRevival } from './lib/supabase';
+import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession, recordStreakRevival, computeCanRevive as computeCanReviveDate } from './lib/supabase';
 import { initAuth, buildHoroscopeContext, setAuthUser, signOut, deleteAccount, getUserId } from './lib/auth';
 import { track, identifyUser, resetAnalytics } from './lib/analytics';
 import { initIAP, loginIAP, logoutIAP, purchaseRevival } from './lib/iap';
 import Purchases from 'react-native-purchases';
 import RevivalModal from './components/RevivalModal';
 import { useSubscription } from './hooks/useSubscription';
-import { requestNotificationPermissions, scheduleDailyReminder, cancelDailyReminder, scheduleStreakReminders } from './lib/notifications';
+import { requestNotificationPermissions, scheduleDailyReminder, cancelDailyReminder, cancelTodayReminder, scheduleStreakReminders } from './lib/notifications';
 import { loadTherapyPreview } from './lib/ai/therapy';
 import { loadJournalEntries } from './lib/journalHelpers';
 import { AuthScreen } from './screens/AuthScreen';
@@ -31,9 +33,13 @@ import { BottomTabBar, TabId } from './components/BottomTabBar';
 import { PaywallScreen } from './screens/PaywallScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { SessionScreen } from './screens/SessionScreen';
-import { TalkScreen } from './screens/TalkScreen';
+import { VentScreen } from './screens/VentScreen';
+import { TalkHubScreen } from './screens/TalkHubScreen';
 import { JournalScreen } from './screens/JournalScreen';
 import { WritingScreen } from './screens/WritingScreen';
+import { AnalyticsScreen } from './screens/AnalyticsScreen';
+import { CrisisResourcesScreen } from './screens/CrisisResourcesScreen';
+import { PracticeDrawer } from './components/PracticeDrawer';
 import { WelcomeScreen } from './screens/WelcomeScreen';
 import { colors } from './theme';
 import { useVoice } from './hooks/useVoice';
@@ -72,8 +78,16 @@ export default function App() {
 
   // ── Navigation ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>(0);
-  const pagerRef = useRef<any>(null);
-  const [fontsLoaded] = useFonts({ DMSerifDisplay_400Regular, DMSerifDisplay_400Regular_Italic });
+  const [showWriting, setShowWriting] = useState(false);
+  const pagerRef = useRef<PagerView>(null);
+  const [fontsLoaded] = useFonts({
+    PlayfairDisplay_700Bold,
+    PlayfairDisplay_700Bold_Italic,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
 
   // ── Shared session results ───────────────────────────────────────────────
   const [insight, setInsight] = useState('');
@@ -95,7 +109,14 @@ export default function App() {
   const [therapyResetTick, setTherapyResetTick] = useState(0);
   const [ventTopicOverride, setVentTopicOverride] = useState<string | null>(null);
   const [showSessionPaywall, setShowSessionPaywall] = useState(false);
+  const [revivalDate, setRevivalDate] = useState('');
+  const [showSession, setShowSession] = useState(false);
   const [showAnswersTick, setShowAnswersTick] = useState(0);
+  const [showVent, setShowVent] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showCrisis, setShowCrisis] = useState(false);
+  const [sessionLaunchSource, setSessionLaunchSource] = useState<'home' | 'talk'>('home');
 
   // ── Hooks ────────────────────────────────────────────────────────────────
   const {
@@ -113,9 +134,8 @@ export default function App() {
 
   const { isConnected } = useNetworkStatus();
 
-  // Free users get a text-only experience — no audio at all (no Speech.speak fallback either)
+  // All users get ElevenLabs TTS voiceovers
   function guardedSpeakAndWait(text: string): Promise<void> {
-    if (!isPremium) return Promise.resolve();
     return speakAndWait(text);
   }
   const [journalRefreshTick, setJournalRefreshTick] = useState(0);
@@ -131,7 +151,7 @@ export default function App() {
   const writingVoiceModeRef = useRef(false);
   const streakAnimatedTodayRef = useRef('');
 
-  function startVoiceRecording(setterFn: any) {
+  function startVoiceRecording(setterFn: Dispatch<SetStateAction<string>>) {
     const context = sessionVoiceModeRef.current ? 'session'
       : therapyVoiceModeRef.current ? 'vent'
       : 'journal';
@@ -147,7 +167,7 @@ export default function App() {
     }, () => ttsIsSpeakingRef.current);
   }
 
-  function stopVoiceRecording(setterFn: any) {
+  function stopVoiceRecording(setterFn: Dispatch<SetStateAction<string>>) {
     _stopVoiceRecording(setterFn);
   }
 
@@ -203,7 +223,7 @@ export default function App() {
       if (uid) {
         Sentry.setUser({ id: uid });
         identifyUser(uid);
-        loginIAP(uid).catch(() => {});
+        loginIAP(uid).then(() => refreshPremiumStatus()).catch(() => {});
       }
       setUserId(uid);
       if (uid && !profile) {
@@ -228,7 +248,22 @@ export default function App() {
         setUserId(uid);
         Sentry.setUser({ id: uid });
         identifyUser(uid);
-        loginIAP(uid).catch(() => {});
+        loginIAP(uid).then(() => refreshPremiumStatus()).catch(() => {});
+        if (event === 'SIGNED_IN') {
+          const { streak, total } = await loadStreakAndCount(false);
+          setStreakDays(streak);
+          setSessionCount(total);
+          setSessionCountLoaded(true);
+          AsyncStorage.multiRemove([STORAGE_KEY_HOME_CACHE]).catch(() => {});
+          const todayStr = new Date().toLocaleDateString('en-CA');
+          const { count: todayCount } = await supabase
+            .from('sessions')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', uid)
+            .gte('created_at', new Date(todayStr + 'T00:00:00').toISOString())
+            .lt('created_at', new Date(todayStr + 'T24:00:00').toISOString());
+          setHasSessionToday((todayCount ?? 0) > 0);
+        }
         const { data: profile } = await supabase
           .from('profiles').select('name, dob').eq('user_id', uid).maybeSingle();
         if (!profile) {
@@ -242,9 +277,14 @@ export default function App() {
           }
         } else {
           setHoroscopeContext(buildHoroscopeContext(profile.dob));
-          const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
-          if (!seen) setShowWelcome(true);
-          if (event === 'SIGNED_IN') track('login');
+          if (event === 'SIGNED_IN') {
+            await AsyncStorage.setItem(STORAGE_KEY_HAS_SEEN_WELCOME, '1');
+            setShowWelcome(false);
+            track('login');
+          } else {
+            const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
+            if (!seen) setShowWelcome(true);
+          }
         }
       } else {
         setAuthUser(null);
@@ -252,6 +292,20 @@ export default function App() {
         Sentry.setUser(null);
         resetAnalytics();
         logoutIAP();
+        // Reset in-memory data so a new user never sees the previous user's content
+        setInsight('');
+        setInsightShort('');
+        setTraits(null);
+        setTopic('');
+        setStreakDays(0);
+        setSessionCount(0);
+        setSessionCountLoaded(false);
+        setHasSessionToday(false);
+        setWeeklyTraits(null);
+        setTherapyPreview(null);
+        setDayNote('');
+        setFreshSession(false);
+        AsyncStorage.multiRemove([STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION]).catch(() => {});
       }
     });
 
@@ -326,32 +380,20 @@ export default function App() {
 
   const computeCanRevive = async (currentStreak: number) => {
     if (currentStreak > 0) { setCanRevive(false); return; }
-    const rcReady = typeof Purchases !== 'undefined';
-    if (!rcReady) { setCanRevive(false); return; }
+    const uid = getUserId();
+    if (!uid) { setCanRevive(false); return; }
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yStr = yesterday.toLocaleDateString('en-CA');
-    const uid = getUserId();
-    if (!uid) { setCanRevive(false); return; }
-    const [{ count: sCount }, { count: nCount }, { count: rCount }] = await Promise.all([
-      supabase.from('sessions').select('id', { count: 'exact', head: true })
-        .eq('user_id', uid)
-        .gte('created_at', new Date(yStr + 'T00:00:00').toISOString())
-        .lt('created_at', new Date(yStr + 'T23:59:59').toISOString()),
-      supabase.from('day_notes').select('id', { count: 'exact', head: true })
-        .eq('user_id', uid).eq('date', yStr),
-      supabase.from('streak_revivals').select('id', { count: 'exact', head: true })
-        .eq('user_id', uid).eq('revived_date', yStr),
-    ]);
-    setCanRevive(((sCount ?? 0) + (nCount ?? 0) + (rCount ?? 0)) > 0);
+    const result = await computeCanReviveDate(uid, yStr);
+    setCanRevive(result);
   };
 
   const handleStreakRevival = async () => {
     try {
       const success = await purchaseRevival();
       if (!success) return;
-      const today = new Date().toISOString().split('T')[0];
-      await recordStreakRevival(today);
+      await recordStreakRevival(revivalDate || new Date().toLocaleDateString('en-CA'));
       setCanRevive(false);
       const { streak, total } = await loadStreakAndCount(false);
       setStreakDays(streak);
@@ -374,6 +416,8 @@ export default function App() {
       STORAGE_KEY_HANDLED_TOPICS,
       STORAGE_KEY_FLAGGED_TOPICS,
       STORAGE_KEY_VENT_MESSAGES_USED,
+      STORAGE_KEY_HOME_CACHE,
+      STORAGE_KEY_PENDING_SESSION,
     ]);
     setShowSettings(false);
   }
@@ -389,88 +433,95 @@ export default function App() {
     }
   };
 
-  const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'session', 2: 'vent', 3: 'journal', 4: 'write' };
+  const TAB_NAMES: Record<number, string> = { 0: 'home', 1: 'talk', 2: 'journal' };
+
+  // PagerView has 3 pages: 0=Today, 1=TalkHub, 2=Journal
+  // TabId values: 0=Today, 1=Talk, 2=Journal
+  const TAB_TO_PAGE: Record<TabId, number> = { 0: 0, 1: 1, 2: 2 };
+  const PAGE_TO_TAB: Record<number, TabId> = { 0: 0 as TabId, 1: 1 as TabId, 2: 2 as TabId };
 
   function handleTabPress(tab: TabId) {
-    if (tab === 1 && !isPremium && hasSessionToday) {
-      setShowSessionPaywall(true);
-      return;
-    }
     track('tab_changed', { tab: TAB_NAMES[tab] ?? tab });
     setActiveTab(tab);
-    pagerRef.current?.setPage(tab);
+    pagerRef.current?.setPage(TAB_TO_PAGE[tab]);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (!fontsLoaded || !authReady) {
-    return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
-  }
-
-  if (!userId) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <StatusBar style="light" translucent />
-          <AuthScreen onDevBypass={__DEV__ ? async () => { isDevBypassRef.current = true; const { error } = await supabase.auth.signInAnonymously(); if (error) { isDevBypassRef.current = false; Alert.alert('Dev bypass failed', error.message); } } : undefined} />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    );
-  }
-
-  if (needsOnboarding) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <StatusBar style="light" translucent />
-          <OnboardingScreen
-            onComplete={({ name, dob }: { name: string; dob: string }) => {
-              track('onboarding_completed');
-              setHoroscopeContext(buildHoroscopeContext(dob));
-              setNeedsOnboarding(false);
-              setShowWelcome(true);
-            }}
-          />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    );
-  }
-
-  if (showWelcome) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <StatusBar style="light" translucent />
-          <WelcomeScreen onDone={() => {
-            track('welcome_screen_dismissed');
-            AsyncStorage.setItem(STORAGE_KEY_HAS_SEEN_WELCOME, '1');
-            setShowWelcome(false);
-          }} />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    );
-  }
-
+  // ThemeProvider is intentionally placed at the outermost level (outside all
+  // auth-state conditional branches) so it never remounts when the user signs
+  // in/out. Remounting would reset isDark to false before AsyncStorage is read,
+  // which caused the "logging in switches to dark mode" symptom (D2 fix).
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <StatusBar style="light" translucent />
+      <ThemeProvider>
+        <SafeAreaProvider>
+
+          {/* Loading gate: hide all UI until fonts and auth are ready */}
+          {(!fontsLoaded || !authReady) && (
+            <View style={{ flex: 1, backgroundColor: colors.bg }} />
+          )}
+
+          {/* Auth screen */}
+          {fontsLoaded && authReady && !userId && (
+            <>
+              <StatusBar style="dark" translucent />
+              <AuthScreen
+                onDevBypass={__DEV__ ? async () => { isDevBypassRef.current = true; const { error } = await supabase.auth.signInAnonymously(); if (error) { isDevBypassRef.current = false; Alert.alert('Dev bypass failed', error.message); } } : undefined}
+                onOpenCrisisResources={() => setShowCrisis(true)}
+              />
+            </>
+          )}
+
+          {/* Onboarding */}
+          {fontsLoaded && authReady && !!userId && needsOnboarding && (
+            <>
+              <StatusBar style="dark" translucent />
+              <OnboardingScreen
+                onComplete={({ name, dob }: { name: string; dob: string }) => {
+                  track('onboarding_completed');
+                  setHoroscopeContext(buildHoroscopeContext(dob));
+                  setNeedsOnboarding(false);
+                  setShowWelcome(true);
+                }}
+              />
+            </>
+          )}
+
+          {/* Welcome */}
+          {fontsLoaded && authReady && !!userId && !needsOnboarding && showWelcome && (
+            <>
+              <StatusBar style="dark" translucent />
+              <WelcomeScreen onDone={() => {
+                track('welcome_screen_dismissed');
+                AsyncStorage.setItem(STORAGE_KEY_HAS_SEEN_WELCOME, '1');
+                setShowWelcome(false);
+              }} />
+            </>
+          )}
+
+          {/* Main app */}
+          {fontsLoaded && authReady && !!userId && !needsOnboarding && !showWelcome && (
+            <>
+          <StatusBar style="auto" translucent />
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
           {!isConnected && <OfflineBanner />}
           <PagerView
             ref={pagerRef}
             style={{ flex: 1 }}
             initialPage={0}
+            offscreenPageLimit={3}
             onPageSelected={e => {
-              const tab = e.nativeEvent.position as TabId;
+              const page = e.nativeEvent.position;
+              const tab = PAGE_TO_TAB[page] ?? 0 as TabId;
               setActiveTab(tab);
               sessionVoiceModeRef.current = false;
               therapyVoiceModeRef.current = false;
               writingVoiceModeRef.current = false;
-              if (recordingRef.current) stopVoiceRecording(recordingSetterRef.current);
+              if (recordingRef.current && recordingSetterRef.current) stopVoiceRecording(recordingSetterRef.current);
             }}
           >
-            {/* Tab 0: Home */}
+            {/* Page 0: Today */}
             <View key="0" style={{ flex: 1 }}>
               <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <HomeScreen
@@ -493,156 +544,63 @@ export default function App() {
                 streakScaleAnim={streakScaleAnim}
                 onStartSession={() => {
                   if (!isPremium && hasSessionToday) { setShowSessionPaywall(true); return; }
-                  setActiveTab(1); pagerRef.current?.setPage(1);
+                  setSessionLaunchSource('home');
+                  setShowSession(true);
                 }}
-                onOpenTalk={() => { setActiveTab(2); pagerRef.current?.setPage(2); }}
-                onOpenJournal={() => { setActiveTab(3); pagerRef.current?.setPage(3); }}
-                onOpenAnswers={() => { setActiveTab(3); pagerRef.current?.setPage(3); setShowAnswersTick(t => t + 1); }}
+                onOpenTalk={() => { setActiveTab(1); pagerRef.current?.setPage(TAB_TO_PAGE[1]); }}
+                onOpenJournal={() => { setActiveTab(2); pagerRef.current?.setPage(TAB_TO_PAGE[2]); }}
+                onOpenAnswers={() => { setActiveTab(2); pagerRef.current?.setPage(TAB_TO_PAGE[2]); setShowAnswersTick(t => t + 1); }}
                 onOpenSettings={() => setShowSettings(true)}
+                onOpenDrawer={() => setShowDrawer(true)}
                 userId={userId}
                 isPremium={isPremium}
                 onPremiumStatusChanged={refreshPremiumStatus}
                 canRevive={canRevive}
-                onReclaimStreak={() => setShowRevival(true)}
+                onReclaimStreak={() => {
+                  const y = new Date();
+                  y.setDate(y.getDate() - 1);
+                  setRevivalDate(y.toLocaleDateString('en-CA'));
+                  setShowRevival(true);
+                }}
               />
               </Sentry.ErrorBoundary>
             </View>
 
-            {/* Tab 1: Session */}
+            {/* Page 1: Talk Hub */}
             <View key="1" style={{ flex: 1 }}>
               <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
-              <SessionScreen
-                userId={userId}
-                sessionCount={sessionCount}
-                horoscopeContext={horoscopeContext}
-                topic={topic}
-                traits={traits}
-                isRecording={isRecording}
-                isTranscribing={isTranscribing}
-                micPulseAnim={micPulseAnim}
-                meteringLevelAnim={meteringLevelAnim}
-                ttsEnabled={ttsEnabled}
-                isConnected={isConnected}
-                onSessionComplete={({ answers: _ans, insight: ins, insightShort: insShort, traits: tr, topic: tp, streak, total }) => {
-                  const oldStreak = streakDays;
-                  setInsight(ins); setInsightShort(insShort); setTraits(tr); setTopic(tp);
-                  setStreakDays(streak); setSessionCount(total); setSessionCountLoaded(true);
-                  setHasSessionToday(true); setFreshSession(true);
-                  const _d = new Date();
-                  const todayStr = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
-                  if (streakAnimatedTodayRef.current === todayStr) {
-                    // already animated today — skip
-                  } else {
-                    AsyncStorage.getItem('lastStreakAnimDate').then(lastDate => {
-                      if (lastDate !== todayStr) {
-                        streakAnimatedTodayRef.current = todayStr;
-                        AsyncStorage.setItem('lastStreakAnimDate', todayStr)
-                          .then(() => {})
-                          .catch(e => console.warn('[App] lastStreakAnimDate write FAILED:', e));
-                        setShowStreakCelebration(true);
-                        runStreakFireAnimation(oldStreak, streak);
-                      }
-                    }).catch((e) => {
-                      console.warn('[App] lastStreakAnimDate read FAILED — suppressing animation:', e);
-                    });
-                  }
-                  AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS)
-                    .then(val => { try { return val ? JSON.parse(val) : []; } catch { return []; } })
-                    .then(ht => loadTherapyPreview(ht))
-                    .then(line => setTherapyPreview(line || ''));
-                  loadWeeklyTraits().then(wt => { if (wt) setWeeklyTraits(wt); });
-                  setActiveTab(0); pagerRef.current?.setPage(0);
+              <TalkHubScreen
+                onStartSession={() => {
+                  if (!isPremium && hasSessionToday) { setShowSessionPaywall(true); return; }
+                  setSessionLaunchSource('talk');
+                  setShowSession(true);
                 }}
-                onExit={() => { setActiveTab(0); pagerRef.current?.setPage(0); }}
-                onNavigateToVent={(tp) => { setVentTopicOverride(tp); setActiveTab(2); pagerRef.current?.setPage(2); }}
-                onStartVoiceRecording={startVoiceRecording}
-                onStopVoiceRecording={stopVoiceRecording}
-                onStopTTS={stopTTS}
-                onSpeakAndWait={guardedSpeakAndWait}
-                sessionVoiceModeRef={sessionVoiceModeRef}
-                sessionVoiceSubmitRef={sessionVoiceSubmitRef}
-                isPremium={isPremium}
-                onPremiumStatusChanged={refreshPremiumStatus}
+                onStartVent={() => setShowVent(true)}
                 hasSessionToday={hasSessionToday}
-                onShowSessionPaywall={() => setShowSessionPaywall(true)}
-                onSessionSaved={(streak, total) => {
-                  setStreakDays(streak);
-                  setSessionCount(total);
-                  setSessionCountLoaded(true);
-                  setHasSessionToday(true);
-                }}
+                isPremium={isPremium}
               />
               </Sentry.ErrorBoundary>
             </View>
 
-            {/* Tab 2: Talk */}
+            {/* Page 2: Journal */}
             <View key="2" style={{ flex: 1 }}>
               <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
-              <TalkScreen
-                horoscopeContext={horoscopeContext}
-                ttsEnabled={ttsEnabled}
-                stopTTS={stopTTS}
-                speakAndWait={guardedSpeakAndWait}
-                sessionCount={sessionCount}
-                sessionCountLoaded={sessionCountLoaded}
-                therapyPreview={therapyPreview}
-                therapyResetTick={therapyResetTick}
-                isRecording={isRecording}
-                isTranscribing={isTranscribing}
-                micPulseAnim={micPulseAnim}
-                meteringLevelAnim={meteringLevelAnim}
-                onStartVoiceRecording={startVoiceRecording}
-                onStopVoiceRecording={stopVoiceRecording}
-                therapyVoiceModeRef={therapyVoiceModeRef}
-                therapyVoiceSubmitRef={therapyVoiceSubmitRef}
-                onTherapyPreviewChange={line => setTherapyPreview(line)}
-                isConnected={isConnected}
-                canUseVent={canUseVent}
-                freeMessagesRemaining={freeMessagesRemaining}
-                isPremium={isPremium}
-                onVentMessageSent={incrementVentMessages}
-                onPremiumStatusChanged={refreshPremiumStatus}
-                ventTopicOverride={ventTopicOverride}
-                onVentTopicUsed={() => setVentTopicOverride(null)}
-                forceStopCount={forceStopCount}
-              />
-              </Sentry.ErrorBoundary>
-            </View>
-
-            {/* Tab 3: Journal */}
-            <View key="3" style={{ flex: 1 }}>
-              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <JournalScreen
+                key={userId ?? 'guest'}
                 userId={userId}
                 sessionCount={sessionCount}
                 dayNote={dayNote}
                 onDayNoteChange={setDayNote}
-                isActive={activeTab === 3}
+                isActive={activeTab === 2}
                 isConnected={isConnected}
                 showAnswersTick={showAnswersTick}
-              />
-              </Sentry.ErrorBoundary>
-            </View>
-
-            {/* Tab 4: Write */}
-            <View key="4" style={{ flex: 1 }}>
-              <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
-              <WritingScreen
-                userId={userId ?? ''}
-                horoscopeContext={horoscopeContext}
-                insight={insight}
-                topic={topic}
-                streakDays={streakDays}
-                isActive={activeTab === 4}
-                isConnected={isConnected}
-                journalRefreshTick={journalRefreshTick}
-                isRecording={isRecording}
-                micPulseAnim={micPulseAnim}
-                meteringLevelAnim={meteringLevelAnim}
-                onStartVoiceRecording={startVoiceRecording}
-                onStopVoiceRecording={stopVoiceRecording}
-                writingVoiceModeRef={writingVoiceModeRef}
-                fontsLoaded={fontsLoaded ?? false}
+                onOpenWriting={() => setShowWriting(true)}
+                onStreakRevived={async () => {
+                  const { streak, total } = await loadStreakAndCount(false);
+                  setStreakDays(streak);
+                  setSessionCount(total);
+                  setSessionCountLoaded(true);
+                }}
               />
               </Sentry.ErrorBoundary>
             </View>
@@ -659,19 +617,186 @@ export default function App() {
           notifMinute={notifPrefs.minute}
           notifEnabled={notifPrefs.enabled}
           onSaveNotifPrefs={handleSaveNotifPrefs}
+          onOpenCrisisResources={() => setShowCrisis(true)}
         />
         <RevivalModal
           visible={showRevival}
           onClose={() => setShowRevival(false)}
           onConfirm={async () => { await handleStreakRevival(); setShowRevival(false); }}
+          date={revivalDate}
         />
         <PaywallScreen
           visible={showSessionPaywall}
           source="session"
           onClose={() => setShowSessionPaywall(false)}
-          onSubscribed={async () => { await refreshPremiumStatus(); setShowSessionPaywall(false); setActiveTab(1); pagerRef.current?.setPage(1); }}
+          onSubscribed={async () => { await refreshPremiumStatus(); setShowSessionPaywall(false); setShowSession(true); }}
         />
-      </SafeAreaProvider>
+        <Modal
+          visible={showWriting}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowWriting(false)}
+        >
+          <SafeAreaProvider>
+            <WritingScreen
+              userId={userId ?? ''}
+              horoscopeContext={horoscopeContext}
+              insight={insight}
+              topic={topic}
+              isActive={showWriting}
+              isConnected={isConnected}
+              journalRefreshTick={journalRefreshTick}
+              isRecording={isRecording}
+              micPulseAnim={micPulseAnim}
+              meteringLevelAnim={meteringLevelAnim}
+              onStartVoiceRecording={startVoiceRecording}
+              onStopVoiceRecording={stopVoiceRecording}
+              writingVoiceModeRef={writingVoiceModeRef}
+              fontsLoaded={fontsLoaded ?? false}
+              onClose={() => setShowWriting(false)}
+            />
+          </SafeAreaProvider>
+        </Modal>
+        <Modal
+          visible={showSession}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowSession(false)}
+        >
+          <SafeAreaProvider>
+            <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
+            <SessionScreen
+              userId={userId}
+              sessionCount={sessionCount}
+              horoscopeContext={horoscopeContext}
+              topic={topic}
+              traits={traits}
+              isRecording={isRecording}
+              isTranscribing={isTranscribing}
+              micPulseAnim={micPulseAnim}
+              meteringLevelAnim={meteringLevelAnim}
+              ttsEnabled={ttsEnabled}
+              isConnected={isConnected}
+              onSessionComplete={({ answers: _ans, insight: ins, insightShort: insShort, traits: tr, topic: tp, streak, total }) => {
+                const oldStreak = streakDays;
+                setInsight(ins); setInsightShort(insShort); setTraits(tr); setTopic(tp);
+                setStreakDays(streak); setSessionCount(total); setSessionCountLoaded(true);
+                setHasSessionToday(true); setFreshSession(true);
+                const _d = new Date();
+                const todayStr = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+                if (streakAnimatedTodayRef.current === todayStr) {
+                  // already animated today — skip
+                } else {
+                  AsyncStorage.getItem('lastStreakAnimDate').then(lastDate => {
+                    if (lastDate !== todayStr) {
+                      streakAnimatedTodayRef.current = todayStr;
+                      AsyncStorage.setItem('lastStreakAnimDate', todayStr)
+                        .then(() => {})
+                        .catch(() => {});
+                      setShowStreakCelebration(true);
+                      runStreakFireAnimation(oldStreak, streak);
+                    }
+                  }).catch(() => {});
+                }
+                AsyncStorage.getItem(STORAGE_KEY_HANDLED_TOPICS)
+                  .then(val => { try { return val ? JSON.parse(val) : []; } catch { return []; } })
+                  .then(ht => loadTherapyPreview(ht))
+                  .then(line => setTherapyPreview(line || ''));
+                loadWeeklyTraits().then(wt => { if (wt) setWeeklyTraits(wt); });
+                setShowSession(false);
+                if (sessionLaunchSource === 'home') { setActiveTab(0); pagerRef.current?.setPage(0); }
+              }}
+              onExit={() => setShowSession(false)}
+              onNavigateToVent={(tp) => { setVentTopicOverride(tp); setShowSession(false); setActiveTab(1); pagerRef.current?.setPage(1); setShowVent(true); }}
+              onStartVoiceRecording={startVoiceRecording}
+              onStopVoiceRecording={stopVoiceRecording}
+              onStopTTS={stopTTS}
+              onSpeakAndWait={guardedSpeakAndWait}
+              sessionVoiceModeRef={sessionVoiceModeRef}
+              sessionVoiceSubmitRef={sessionVoiceSubmitRef}
+              isPremium={isPremium}
+              onPremiumStatusChanged={refreshPremiumStatus}
+              hasSessionToday={hasSessionToday}
+              onSessionSaved={(streak, total) => {
+                setStreakDays(streak);
+                setSessionCount(total);
+                setSessionCountLoaded(true);
+                setHasSessionToday(true);
+                cancelTodayReminder().catch(() => {});
+              }}
+            />
+            </Sentry.ErrorBoundary>
+          </SafeAreaProvider>
+        </Modal>
+        <Modal visible={showVent} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setShowVent(false)}>
+          <SafeAreaProvider>
+            <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
+            <VentScreen
+              horoscopeContext={horoscopeContext}
+              ttsEnabled={ttsEnabled}
+              stopTTS={stopTTS}
+              speakAndWait={guardedSpeakAndWait}
+              sessionCount={sessionCount}
+              sessionCountLoaded={sessionCountLoaded}
+              therapyPreview={therapyPreview}
+              therapyResetTick={therapyResetTick}
+              isRecording={isRecording}
+              isTranscribing={isTranscribing}
+              micPulseAnim={micPulseAnim}
+              meteringLevelAnim={meteringLevelAnim}
+              onStartVoiceRecording={startVoiceRecording}
+              onStopVoiceRecording={stopVoiceRecording}
+              therapyVoiceModeRef={therapyVoiceModeRef}
+              therapyVoiceSubmitRef={therapyVoiceSubmitRef}
+              onTherapyPreviewChange={line => setTherapyPreview(line)}
+              isConnected={isConnected}
+              canUseVent={canUseVent}
+              freeMessagesRemaining={freeMessagesRemaining}
+              isPremium={isPremium}
+              onVentMessageSent={incrementVentMessages}
+              onPremiumStatusChanged={refreshPremiumStatus}
+              ventTopicOverride={ventTopicOverride}
+              onVentTopicUsed={() => setVentTopicOverride(null)}
+              forceStopCount={forceStopCount}
+              onClose={() => setShowVent(false)}
+            />
+            </Sentry.ErrorBoundary>
+          </SafeAreaProvider>
+        </Modal>
+        <Modal visible={showAnalytics} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setShowAnalytics(false)}>
+          <SafeAreaProvider>
+            <AnalyticsScreen userId={userId ?? ''} isActive={showAnalytics} onClose={() => setShowAnalytics(false)} />
+          </SafeAreaProvider>
+        </Modal>
+        <PracticeDrawer
+          visible={showDrawer}
+          onClose={() => setShowDrawer(false)}
+          userId={userId ?? ''}
+          streakDays={streakDays}
+          sessionCount={sessionCount}
+          traits={traits}
+          weeklyTraits={weeklyTraits}
+          isPremium={isPremium}
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenAnalytics={() => setShowAnalytics(true)}
+          onSignOut={handleSignOut}
+        />
+            </>
+          )}
+
+        {showCrisis && (
+          <View style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            zIndex: 9999,
+            backgroundColor: colors['bg-primary'],
+          }}>
+            <SafeAreaProvider>
+              <CrisisResourcesScreen onClose={() => setShowCrisis(false)} />
+            </SafeAreaProvider>
+          </View>
+        )}
+        </SafeAreaProvider>
+      </ThemeProvider>
     </GestureHandlerRootView>
   );
 }

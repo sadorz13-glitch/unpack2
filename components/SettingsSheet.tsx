@@ -1,47 +1,67 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
-  ActivityIndicator, StyleSheet, Pressable, Switch, Linking,
+  ActivityIndicator, StyleSheet, ScrollView, Linking,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing, fontFamilies } from '../theme';
+import { X, LogOut, Trash2 } from 'lucide-react-native';
+import { useTheme } from '../theme';
+import { ListRow } from './ui/ListRow';
+import { SectionDivider } from './ui/SectionDivider';
+import { ToggleSwitch } from './ui/ToggleSwitch';
+import { RadioButton } from './ui/RadioButton';
+import { IconButton } from './ui/IconButton';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   onSignOut: () => void;
   onDeleteAccount: () => Promise<void>;
-  onSaveNotifPrefs?: (hour: number, minute: number, enabled: boolean) => void;
-  notifHour?: number;
-  notifMinute?: number;
-  notifEnabled?: boolean;
+  notifHour: number;
+  notifMinute: number;
+  notifEnabled: boolean;
+  onSaveNotifPrefs: (hour: number, minute: number, enabled: boolean) => void;
+  onOpenCrisisResources?: () => void;
 };
 
 type Step = 'menu' | 'confirm' | 'type' | 'notifications';
 
-const ACCENT = 'rgba(180,140,90,0.9)';
+function pad(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
 
 export function SettingsSheet({
-  visible, onClose, onSignOut, onDeleteAccount,
+  visible,
+  onClose,
+  onSignOut,
+  onDeleteAccount,
+  notifHour,
+  notifMinute,
+  notifEnabled,
   onSaveNotifPrefs,
-  notifEnabled = true,
+  onOpenCrisisResources,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors, typography, spacing, radius } = useTheme();
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
+
   const [step, setStep] = useState<Step>('menu');
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const [notifLocalEnabled, setNotifLocalEnabled] = useState(notifEnabled);
-  const [emailOptOut, setEmailOptOut] = useState(false);
+  const [notifLocalHour, setNotifLocalHour] = useState(notifHour);
+  const [notifLocalMinute, setNotifLocalMinute] = useState(notifMinute);
 
   useEffect(() => {
     if (visible) {
-      AsyncStorage.getItem('email_opt_out').then(val => setEmailOptOut(val === 'true'));
+      setNotifLocalEnabled(notifEnabled);
+      setNotifLocalHour(notifHour);
+      setNotifLocalMinute(notifMinute);
     }
-  }, [visible]);
+  }, [visible, notifEnabled, notifHour, notifMinute]);
 
   function reset() {
     setStep('menu');
@@ -60,311 +80,465 @@ export function SettingsSheet({
     setError('');
     try {
       await onDeleteAccount();
-    } catch (e: any) {
-      setError(e.message || 'Something went wrong. Try again.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Something went wrong. Try again.';
+      setError(msg);
       setLoading(false);
     }
   }
 
-  const handleContact = () => {
-    Linking.openURL('mailto:support@letsunpack.app');
-  };
-
-  async function handleEmailOptOutToggle(val: boolean) {
-    setEmailOptOut(val);
-    await AsyncStorage.setItem('email_opt_out', String(val));
-  }
-
-  const handleManageSub = async () => {
-    const url = 'itms-apps://apps.apple.com/account/subscriptions';
-    const canOpen = await Linking.canOpenURL(url);
-    Linking.openURL(canOpen ? url : 'https://apps.apple.com/account/subscriptions');
-  };
-
-  function handleOpenNotifications() {
-    setNotifLocalEnabled(notifEnabled);
-    setStep('notifications');
-  }
-
   function handleSaveNotifs() {
-    onSaveNotifPrefs?.(20, 0, notifLocalEnabled);
+    onSaveNotifPrefs(notifLocalHour, notifLocalMinute, notifLocalEnabled);
     handleClose();
   }
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        style={styles.kavWrapper}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+  // ─── Dynamic styles that depend on theme colors ──────────────────────────────
+
+  const s = StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors['bg-primary'],
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing['margin-screen'],
+      paddingTop: insets.top + spacing.md,
+      paddingBottom: spacing.md,
+      backgroundColor: colors['bg-primary'],
+    },
+    headerTitle: {
+      ...typography.h1,
+      color: colors['text-primary'],
+    },
+    scrollContent: {
+      paddingHorizontal: 0,
+      paddingBottom: insets.bottom + spacing.xl,
+    },
+    rowGroup: {
+      backgroundColor: colors['bg-secondary'],
+      borderRadius: radius.md,
+      marginHorizontal: spacing['margin-screen'],
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors['border-subtle'],
+    },
+    rowDivider: {
+      height: 1,
+      backgroundColor: colors['border-subtle'],
+      marginLeft: 20,
+    },
+    dangerSectionLabel: {
+      ...typography.labelCaps,
+      color: colors['status-danger'],
+      marginBottom: spacing.sm,
+    },
+    dangerSectionContainer: {
+      marginTop: spacing.xl,
+      marginHorizontal: spacing['margin-screen'],
+      marginBottom: spacing.md,
+    },
+    sectionWrapper: {
+      paddingHorizontal: spacing['margin-screen'],
+    },
+    // Confirm / Type step styles
+    modalInner: {
+      flex: 1,
+      backgroundColor: colors['bg-primary'],
+      paddingHorizontal: spacing['margin-screen'],
+    },
+    stepTitle: {
+      ...typography.h1,
+      color: colors['text-primary'],
+      marginBottom: spacing.md,
+    },
+    stepBody: {
+      ...typography.body,
+      color: colors['text-secondary'],
+      marginBottom: spacing.xl,
+    },
+    buttonRow: {
+      flexDirection: 'row',
+      gap: spacing.md,
+      marginTop: spacing.sm,
+    },
+    cancelBtn: {
+      flex: 1,
+      height: 56,
+      borderWidth: 1,
+      borderColor: colors['border-strong'],
+      borderRadius: radius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cancelBtnText: {
+      ...typography.buttonText,
+      color: colors['text-secondary'],
+    },
+    confirmBtn: {
+      flex: 1,
+      height: 56,
+      backgroundColor: colors['accent-primary'],
+      borderRadius: radius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    confirmBtnText: {
+      ...typography.buttonText,
+      color: colors['text-on-primary'],
+    },
+    deleteBtn: {
+      flex: 1,
+      height: 56,
+      backgroundColor: colors['status-danger'],
+      borderRadius: radius.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    deleteBtnText: {
+      ...typography.buttonText,
+      color: colors['text-on-primary'],
+    },
+    dimmed: {
+      opacity: 0.4,
+    },
+    textInput: {
+      borderBottomWidth: 2,
+      borderBottomColor: colors['border-strong'],
+      color: colors['text-primary'],
+      fontSize: 16,
+      lineHeight: 24,
+      letterSpacing: 2,
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.md,
+      fontFamily: 'Inter_400Regular',
+    },
+    textInputFocused: {
+      borderBottomColor: colors['accent-primary'],
+    },
+    errorText: {
+      ...typography.caption,
+      color: colors['status-danger'],
+      marginBottom: spacing.md,
+    },
+    notifHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing['margin-screen'],
+      paddingTop: insets.top + spacing.md,
+      paddingBottom: spacing.md,
+    },
+    notifTitle: {
+      ...typography.h1,
+      color: colors['text-primary'],
+      flex: 1,
+    },
+    timeDisplay: {
+      ...typography.labelCaps,
+      color: colors['text-tertiary'],
+    },
+  });
+
+  // ─── Notifications sub-screen ────────────────────────────────────────────────
+
+  if (step === 'notifications') {
+    return (
+      <Modal
+        visible={visible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setStep('menu')}
       >
-      <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.xl }]} onPress={() => {}}>
-          <View style={styles.handle} />
-
-          {step === 'menu' && (
-            <>
-              <Text style={styles.title}>Settings</Text>
-              <TouchableOpacity style={styles.option} onPress={handleOpenNotifications}>
-                <Text style={styles.optionText}>Notification reminder</Text>
-              </TouchableOpacity>
-              <View style={styles.divider} />
-              <TouchableOpacity style={styles.option} onPress={handleManageSub}>
-                <Text style={styles.optionText}>Manage Subscription</Text>
-              </TouchableOpacity>
-              <View style={styles.divider} />
-              <View style={[styles.option, styles.optionRow]}>
-                <Text style={styles.optionText}>Marketing emails</Text>
-                <Switch
-                  value={!emailOptOut}
-                  onValueChange={val => handleEmailOptOutToggle(!val)}
-                  trackColor={{ false: 'rgba(255,255,255,0.1)', true: ACCENT }}
-                  thumbColor={colors.textPrimary}
+        <View style={[s.screen]}>
+          <View style={s.notifHeader}>
+            <IconButton
+              icon={X}
+              onPress={() => setStep('menu')}
+              accessibilityLabel="Back to settings"
+            />
+            <Text style={s.notifTitle}>Daily Reminder</Text>
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title="Enable Reminder"
+              rightElement={
+                <ToggleSwitch
+                  value={notifLocalEnabled}
+                  onValueChange={setNotifLocalEnabled}
+                  accessibilityLabel="Toggle daily reminder"
                 />
-              </View>
-              <View style={styles.divider} />
-              <TouchableOpacity style={styles.option} onPress={handleContact}>
-                <Text style={styles.optionText}>Contact / Data requests</Text>
-                <Text style={styles.optionSub}>support@letsunpack.app</Text>
-              </TouchableOpacity>
-              <View style={styles.divider} />
-              <TouchableOpacity style={styles.option} onPress={onSignOut}>
-                <Text style={styles.optionText}>Sign out</Text>
-              </TouchableOpacity>
-              <View style={styles.divider} />
-              <TouchableOpacity style={styles.option} onPress={() => setStep('confirm')}>
-                <Text style={[styles.optionText, styles.destructive]}>Delete account</Text>
-              </TouchableOpacity>
-            </>
-          )}
+              }
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="Reminder Time"
+              rightValue={`${pad(notifLocalHour)}:${pad(notifLocalMinute)}`}
+            />
+          </View>
+          <View style={[s.buttonRow, { marginHorizontal: spacing['margin-screen'], marginTop: spacing.xl }]}>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => setStep('menu')}>
+              <Text style={s.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.confirmBtn} onPress={handleSaveNotifs}>
+              <Text style={s.confirmBtnText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
-          {step === 'confirm' && (
-            <>
-              <Text style={styles.title}>Delete account?</Text>
-              <Text style={styles.body}>
-                This permanently deletes your account, all sessions, all journal entries, and your data. This cannot be undone.
-              </Text>
-              <View style={styles.row}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={reset}>
-                  <Text style={styles.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.continueBtn} onPress={() => setStep('type')}>
-                  <Text style={styles.continueText}>Continue</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
+  // ─── Confirm delete sub-screen ───────────────────────────────────────────────
 
-          {step === 'type' && (
-            <>
-              <Text style={styles.title}>Confirm deletion</Text>
-              <Text style={styles.body}>Type DELETE to confirm.</Text>
+  if (step === 'confirm') {
+    return (
+      <Modal
+        visible={visible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={reset}
+      >
+        <View style={[s.screen, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }]}>
+          <View style={s.modalInner}>
+            <Text style={[s.stepTitle, { marginTop: spacing.xl }]}>Delete account?</Text>
+            <Text style={s.stepBody}>
+              This permanently deletes your account, all sessions, all journal entries, and your data. This cannot be undone.
+            </Text>
+            <View style={s.buttonRow}>
+              <TouchableOpacity style={s.cancelBtn} onPress={reset}>
+                <Text style={s.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.confirmBtn} onPress={() => setStep('type')}>
+                <Text style={s.confirmBtnText}>Continue</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  // ─── Type DELETE sub-screen ──────────────────────────────────────────────────
+
+  if (step === 'type') {
+    return (
+      <Modal
+        visible={visible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={reset}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={[s.screen, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xl }]}>
+            <View style={s.modalInner}>
+              <Text style={[s.stepTitle, { marginTop: spacing.xl }]}>Confirm deletion</Text>
+              <Text style={s.stepBody}>Type DELETE to confirm.</Text>
               <TextInput
-                style={styles.input}
+                style={s.textInput}
                 value={confirmText}
                 onChangeText={setConfirmText}
                 autoCapitalize="characters"
                 autoFocus
                 placeholder="DELETE"
-                placeholderTextColor={colors.textGhost}
+                placeholderTextColor={colors['text-tertiary']}
                 editable={!loading}
               />
-              {!!error && <Text style={styles.errorText}>{error}</Text>}
-              <View style={styles.row}>
-                <TouchableOpacity style={styles.cancelBtn} onPress={reset} disabled={loading}>
-                  <Text style={[styles.cancelText, loading && styles.dimmed]}>Cancel</Text>
+              {!!error && <Text style={s.errorText}>{error}</Text>}
+              <View style={s.buttonRow}>
+                <TouchableOpacity style={s.cancelBtn} onPress={reset} disabled={loading}>
+                  <Text style={[s.cancelBtnText, loading && s.dimmed]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.continueBtn, styles.destructiveBtn, (confirmText !== 'DELETE' || loading) && styles.dimmed]}
+                  style={[s.deleteBtn, (confirmText !== 'DELETE' || loading) && s.dimmed]}
                   onPress={handleDelete}
                   disabled={confirmText !== 'DELETE' || loading}
                 >
                   {loading
-                    ? <ActivityIndicator color={colors.bg} size="small" />
-                    : <Text style={styles.continueText}>Delete</Text>
+                    ? <ActivityIndicator color={colors['text-on-primary']} size="small" />
+                    : <Text style={s.deleteBtnText}>Delete</Text>
                   }
                 </TouchableOpacity>
               </View>
-            </>
-          )}
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  }
 
-          {step === 'notifications' && (
-            <>
-              <View style={styles.notifHeader}>
-                <TouchableOpacity onPress={() => setStep('menu')} style={styles.backBtn}>
-                  <Text style={styles.backText}>{'←'}</Text>
-                </TouchableOpacity>
-                <Text style={styles.title}>Daily reminder</Text>
-              </View>
+  // ─── Main settings menu ───────────────────────────────────────────────────────
 
-              <View style={styles.toggleRow}>
-                <Text style={styles.optionText}>Enabled</Text>
-                <Switch
-                  value={notifLocalEnabled}
-                  onValueChange={setNotifLocalEnabled}
-                  trackColor={{ false: 'rgba(255,255,255,0.1)', true: ACCENT }}
-                  thumbColor={colors.textPrimary}
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={handleClose}
+    >
+      <View style={s.screen}>
+        {/* Header */}
+        <View style={s.header}>
+          <Text style={s.headerTitle}>Settings</Text>
+          <IconButton
+            icon={X}
+            onPress={handleClose}
+            accessibilityLabel="Close settings"
+          />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={s.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ACCOUNT section */}
+          <View style={s.sectionWrapper}>
+            <SectionDivider label="Account" style={{ marginTop: spacing.sm }} />
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title="Sign Out"
+              rightElement={
+                <LogOut
+                  size={20}
+                  color={colors['text-tertiary']}
+                  strokeWidth={1.5}
                 />
-              </View>
+              }
+              onPress={onSignOut}
+            />
+          </View>
 
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveNotifs}>
-                <Text style={styles.saveBtnText}>Save</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </Pressable>
-      </Pressable>
-      </KeyboardAvoidingView>
+          {/* NOTIFICATIONS section */}
+          <View style={s.sectionWrapper}>
+            <SectionDivider label="Notifications" />
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title="Daily Reminder"
+              rightElement={
+                <ToggleSwitch
+                  value={notifLocalEnabled}
+                  onValueChange={val => {
+                    setNotifLocalEnabled(val);
+                    onSaveNotifPrefs(notifLocalHour, notifLocalMinute, val);
+                  }}
+                  accessibilityLabel="Toggle daily reminder"
+                />
+              }
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="Reminder Time"
+              rightValue={`${pad(notifHour)}:${pad(notifMinute)}`}
+              onPress={() => {
+                setNotifLocalEnabled(notifEnabled);
+                setNotifLocalHour(notifHour);
+                setNotifLocalMinute(notifMinute);
+                setStep('notifications');
+              }}
+            />
+          </View>
+
+          {/* APPEARANCE section */}
+          <View style={s.sectionWrapper}>
+            <SectionDivider label="Appearance" />
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title="Light"
+              onPress={() => setThemeMode('light')}
+              rightElement={
+                <RadioButton
+                  selected={themeMode === 'light'}
+                  onPress={() => setThemeMode('light')}
+                  accessibilityLabel="Select light theme"
+                />
+              }
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="Dark"
+              onPress={() => setThemeMode('dark')}
+              rightElement={
+                <RadioButton
+                  selected={themeMode === 'dark'}
+                  onPress={() => setThemeMode('dark')}
+                  accessibilityLabel="Select dark theme"
+                />
+              }
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="System"
+              onPress={() => setThemeMode('system')}
+              rightElement={
+                <RadioButton
+                  selected={themeMode === 'system'}
+                  onPress={() => setThemeMode('system')}
+                  accessibilityLabel="Select system theme"
+                />
+              }
+            />
+          </View>
+
+          {/* ABOUT section */}
+          <View style={s.sectionWrapper}>
+            <SectionDivider label="About" />
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title="Privacy Policy"
+              rightElement="chevron"
+              onPress={() => Linking.openURL('https://letsunpack.app/privacy')}
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="Terms of Service"
+              rightElement="chevron"
+              onPress={() => Linking.openURL('https://letsunpack.app/terms')}
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="Support"
+              rightElement="chevron"
+              onPress={() => Linking.openURL('mailto:support@letsunpack.app')}
+            />
+            <View style={s.rowDivider} />
+            <ListRow
+              title="Crisis resources"
+              rightElement="chevron"
+              onPress={() => {
+                onClose();
+                setTimeout(() => onOpenCrisisResources?.(), 80);
+              }}
+            />
+          </View>
+
+          {/* DANGER ZONE section — custom label in status-danger color */}
+          <View style={s.dangerSectionContainer}>
+            <Text style={s.dangerSectionLabel}>Danger Zone</Text>
+            <View style={[{ height: 1, backgroundColor: colors['border-subtle'] }]} />
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title="Delete Account"
+              titleColor={colors['status-danger']}
+              rightElement={
+                <Trash2
+                  size={20}
+                  color={colors['status-danger']}
+                  strokeWidth={1.5}
+                />
+              }
+              onPress={() => setStep('confirm')}
+            />
+          </View>
+        </ScrollView>
+      </View>
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  kavWrapper: {
-    flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#111111',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.base,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignSelf: 'center',
-    marginBottom: spacing.xl,
-  },
-  title: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 20,
-    color: colors.textPrimary,
-    marginBottom: spacing.lg,
-  },
-  option: {
-    paddingVertical: spacing.base,
-  },
-  optionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  optionText: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    letterSpacing: 0.3,
-  },
-  optionSub: {
-    color: 'rgba(255,255,255,0.3)',
-    fontSize: 11,
-    letterSpacing: 0.2,
-    marginTop: 2,
-  },
-  destructive: {
-    color: '#c0392b',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    marginVertical: spacing.sm,
-  },
-  body: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: spacing.xl,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.sm,
-    marginBottom: spacing.base,
-  },
-  cancelBtn: {
-    flex: 1,
-    paddingVertical: spacing.base,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 2,
-    alignItems: 'center',
-  },
-  cancelText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    letterSpacing: 1,
-  },
-  continueBtn: {
-    flex: 1,
-    paddingVertical: spacing.base,
-    backgroundColor: colors.accent,
-    borderRadius: 2,
-    alignItems: 'center',
-  },
-  destructiveBtn: {
-    backgroundColor: '#c0392b',
-  },
-  continueText: {
-    color: colors.bg,
-    fontSize: 13,
-    letterSpacing: 1,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 2,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.base,
-    color: colors.textPrimary,
-    fontSize: 15,
-    letterSpacing: 2,
-    marginBottom: spacing.base,
-  },
-  errorText: {
-    color: '#c0392b',
-    fontSize: 12,
-    marginBottom: spacing.base,
-  },
-  dimmed: {
-    opacity: 0.4,
-  },
-  notifHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  backBtn: {
-    marginRight: spacing.base,
-    paddingVertical: 2,
-  },
-  backText: {
-    color: colors.textPrimary,
-    fontSize: 20,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.base,
-    marginBottom: spacing.base,
-  },
-  saveBtn: {
-    marginTop: spacing.lg,
-    paddingVertical: spacing.base,
-    borderRadius: 2,
-    alignItems: 'center',
-    backgroundColor: ACCENT,
-  },
-  saveBtnText: {
-    color: '#fff',
-    fontSize: 13,
-    letterSpacing: 1,
-    fontWeight: '600',
-  },
-});

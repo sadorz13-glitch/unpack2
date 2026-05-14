@@ -1,25 +1,36 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Animated,
 } from 'react-native';
+import { PanGestureHandler, State, type HandlerStateChangeEvent, type PanGestureHandlerEventPayload } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
-import { BlurCard } from '../components/BlurCard';
-import { MiniRadar } from '../components/Radar';
-import PersonalityBreakdownModal from '../components/PersonalityBreakdownModal';
-import { ShimmerTile } from '../components/ShimmerTile';
+import { Menu, Settings, Mic, Lock } from 'lucide-react-native';
+import { useTheme } from '../theme';
+import {
+  IconButton,
+  Card,
+  HeroImageCard,
+  OutlinedPillButton,
+  SectionDivider,
+  AILabel,
+} from '../components/ui';
 import { PaywallScreen } from './PaywallScreen';
-import { colors, spacing, fontFamilies, CARD_SIZE } from '../theme';
+import PersonalityBreakdownModal from '../components/PersonalityBreakdownModal';
 import { TRAITS } from '../constants';
 
-function GearIcon({ color }: { color: string }) {
-  return (
-    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke={color} strokeWidth={1.5} />
-      <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke={color} strokeWidth={1.5} />
-    </Svg>
-  );
+import { dailyHeroImageUrl } from '../lib/dailyFeature';
+
+// ─── Daily Feature stub (Phase 4 will wire real lib/dailyFeature) ─────────────
+function buildDailyFeature() {
+  return {
+    date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+    title: "Today's Reflection",
+    quote: 'What part of you are you leaving unexplored?',
+    imageUrl: dailyHeroImageUrl,
+  };
 }
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 type Props = {
   streakDays: number;
@@ -34,7 +45,8 @@ type Props = {
   therapyPreview: string | null;
   dayNote: string;
   freshSession: boolean;
-  streakDisplayValue: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  streakDisplayValue: any;
   showFireEmoji: boolean;
   fireFloatAnim: Animated.Value;
   fireOpacityAnim: Animated.Value;
@@ -44,190 +56,361 @@ type Props = {
   onOpenJournal: () => void;
   onOpenAnswers: () => void;
   onOpenSettings: () => void;
-  userId: string | null;
-  isPremium?: boolean;
-  onPremiumStatusChanged?: () => Promise<void>;
-  canRevive?: boolean;
-  onReclaimStreak?: () => void;
+  onOpenDrawer?: () => void;
+  userId: string;
+  isPremium: boolean;
+  onPremiumStatusChanged: () => void;
+  canRevive: boolean;
+  onReclaimStreak: () => void;
 };
 
-export function HomeScreen({
-  streakDays, sessionCount, sessionCountLoaded, hasSessionToday,
-  insight, insightShort, traits, weeklyTraits, topic, therapyPreview, dayNote,
-  freshSession, streakDisplayValue, showFireEmoji, fireFloatAnim, fireOpacityAnim,
-  streakScaleAnim, onStartSession, onOpenTalk, onOpenJournal,
-  onOpenAnswers, onOpenSettings, userId, isPremium = false, onPremiumStatusChanged,
-  canRevive, onReclaimStreak,
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export const TodayScreen = function TodayScreen({
+  streakDays,
+  sessionCount,
+  sessionCountLoaded,
+  hasSessionToday,
+  insight,
+  insightShort,
+  traits,
+  weeklyTraits,
+  topic,
+  therapyPreview,
+  dayNote,
+  freshSession,
+  streakDisplayValue,
+  showFireEmoji,
+  fireFloatAnim,
+  fireOpacityAnim,
+  streakScaleAnim,
+  onStartSession,
+  onOpenTalk,
+  onOpenJournal,
+  onOpenAnswers,
+  onOpenSettings,
+  onOpenDrawer,
+  userId,
+  isPremium,
+  onPremiumStatusChanged,
+  canRevive,
+  onReclaimStreak,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const topTrait = traits ? TRAITS.reduce((a: string, b: string) => ((traits[a] ?? 0) > (traits[b] ?? 0) ? a : b)) : null;
+  const { colors, typography, spacing, radius } = useTheme();
+
   const [showPaywall, setShowPaywall] = useState(false);
   const [showPersonalityModal, setShowPersonalityModal] = useState(false);
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
 
+  const dailyFeature = buildDailyFeature();
+
+  const topTrait = traits
+    ? TRAITS.reduce((a: string, b: string) =>
+        (traits[a] ?? 0) > (traits[b] ?? 0) ? a : b
+      )
+    : null;
+
+  const displayStreak = streakDisplayValue || streakDays;
+  const isStreakActive = streakDays > 0 && (hasSessionToday || !!dayNote);
+  const streakColor = isStreakActive ? colors['accent-gold'] : colors['text-tertiary'];
+
+  if (__DEV__) {
+    const streakState = streakDays > 0
+      ? (isStreakActive ? 'STATE1_gold' : 'STATE2_pending')
+      : canRevive ? 'STATE3_revive' : 'STATE4_none';
+    console.log('[HomeScreen streak]', { streakDays, hasSessionToday, canRevive, streakState });
+  }
+
   return (
-    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+    <View style={[styles.root, { backgroundColor: colors['bg-primary'] }]}>
+
+      {/* ── Pinned top bar ─────────────────────────────────────────────────── */}
+      <View
+        style={[
+          styles.topBar,
+          {
+            paddingTop: insets.top + spacing.sm,
+            paddingHorizontal: spacing['margin-screen'],
+            borderBottomColor: colors['border-subtle'],
+          },
+        ]}
+      >
+        <IconButton
+          icon={Menu}
+          onPress={() => onOpenDrawer?.()}
+          accessibilityLabel="Open menu"
+        />
+
+        <Text style={[typography.h2, { color: colors['text-primary'] }]}>
+          Unpack
+        </Text>
+
+        <IconButton
+          icon={Settings}
+          onPress={onOpenSettings}
+          accessibilityLabel="Open settings"
+        />
+      </View>
+
+      {/* ── Scrollable content ─────────────────────────────────────────────── */}
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + spacing.base, paddingBottom: spacing.xl }]}
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            paddingHorizontal: spacing['margin-screen'],
+            paddingBottom: 100,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text style={styles.tabTitle}>Home</Text>
-          <View style={styles.headerRight}>
-            <Text style={styles.headerDate}>
-              {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()}
-            </Text>
-            <TouchableOpacity onPress={onOpenSettings} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <GearIcon color={colors.accent} />
-            </TouchableOpacity>
+
+        {/* ── Daily Feature ──────────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <Text
+            style={[
+              typography.labelCaps,
+              { color: colors['text-tertiary'], marginBottom: spacing.sm },
+            ]}
+          >
+            {dailyFeature.date}
+          </Text>
+
+          <Text
+            style={[
+              typography.h1,
+              { color: colors['text-primary'], marginBottom: spacing.md },
+            ]}
+          >
+            {dailyFeature.title}
+          </Text>
+
+          <View style={{ alignItems: 'flex-end', marginBottom: 4 }}>
+            <AILabel />
           </View>
+          <HeroImageCard
+            imageUrl={dailyFeature.imageUrl}
+            quote={dailyFeature.quote}
+            ctaLabel="REFLECT NOW"
+            onCtaPress={onStartSession}
+          />
         </View>
 
-        <TouchableOpacity style={styles.sessionCta} onPress={onStartSession}>
-          <Text style={styles.sessionCtaText}>START SESSION</Text>
-        </TouchableOpacity>
+        {/* ── Talk-It-Out card ───────────────────────────────────────────── */}
+        <Card style={styles.talkCard}>
+          <Mic
+            size={24}
+            color={colors['accent-primary']}
+            strokeWidth={1.5}
+          />
 
-        <View style={styles.bento}>
+          <Text
+            style={[
+              typography.h3,
+              { color: colors['text-primary'], marginTop: spacing.sm },
+            ]}
+          >
+            Something on your mind?
+          </Text>
 
-          <View style={styles.wideTileWrapper}>
-            <BlurCard style={styles.wideTile}>
-              <View style={styles.streakInner}>
-                <View>
-                  <Text style={styles.tileLabel}>STREAK</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                    {showFireEmoji && (
-                      <Animated.Text style={[styles.fireEmoji, { transform: [{ translateY: fireFloatAnim }], opacity: fireOpacityAnim }]}>🔥</Animated.Text>
-                    )}
-                    <Animated.Text style={[styles.streakNumber, { transform: [{ scale: streakScaleAnim }], color: hasSessionToday && streakDays > 0 ? colors.accent : colors.textGhost }]}>
-                      {streakDisplayValue || streakDays}
-                    </Animated.Text>
-                    <Text style={styles.tileSubLabel}>DAYS</Text>
-                  </View>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.tileLabel}>SESSIONS</Text>
-                  <Text style={styles.sessionCountNumber}>{sessionCount}</Text>
-                </View>
-              </View>
-              {canRevive && onReclaimStreak && (
-                <TouchableOpacity onPress={onReclaimStreak} style={styles.reclaimBtn}>
-                  <Text style={styles.reclaimTxt}>RECLAIM</Text>
-                </TouchableOpacity>
-              )}
-            </BlurCard>
-          </View>
+          <Text
+            style={[
+              typography.body,
+              {
+                color: colors['text-secondary'],
+                marginTop: spacing.xs,
+                marginBottom: spacing.md,
+              },
+            ]}
+          >
+            {therapyPreview || 'Start a conversation with yourself'}
+          </Text>
 
           <TouchableOpacity
-            onPress={() => { if (sessionCountLoaded && sessionCount === 0) return; onOpenTalk(); }}
-            activeOpacity={0.8}
-            style={styles.wideTileWrapper}
+            onPress={onOpenTalk}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Start recording"
           >
-            <BlurCard style={styles.wideTile}>
-              <Text style={styles.tileLabel}>TALK IT OUT</Text>
-              {sessionCountLoaded && sessionCount === 0 ? (
-                <Text style={styles.lockedText}>🔒  Complete a session to unlock.</Text>
-              ) : therapyPreview === null ? (
-                <ShimmerTile size={CARD_SIZE * 0.5} />
-              ) : therapyPreview === '' ? (
-                <Text style={styles.previewText}>Complete a session to unlock your first preview.</Text>
-              ) : (
-                <Text style={[styles.previewText, { color: colors.accent, fontFamily: fontFamilies.serifItalic, fontSize: 13 }]} numberOfLines={3}>
-                  {therapyPreview}
-                </Text>
-              )}
-            </BlurCard>
-          </TouchableOpacity>
-
-          <View style={styles.halfRow}>
-            <TouchableOpacity
-              onPress={() => { if (traits) setShowPersonalityModal(true); }}
-              activeOpacity={traits ? 0.8 : 1}
-              style={styles.halfTileWrapper}
+            <Text
+              style={[
+                typography.labelCaps,
+                { color: colors['accent-primary'] },
+              ]}
             >
-              <BlurCard style={styles.halfTile}>
-                <Text style={styles.tileLabel}>WHEEL</Text>
-                <View style={styles.tileCenter}>
-                  {traits
-                    ? <View pointerEvents="none"><MiniRadar traits={traits} /></View>
-                    : <Text style={styles.previewText}>Complete{'\n'}a session</Text>
-                  }
-                </View>
-              </BlurCard>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={onOpenJournal} activeOpacity={0.8} style={styles.halfTileWrapper}>
-              <BlurCard style={styles.halfTile}>
-                <Text style={styles.tileLabel}>JOURNAL</Text>
-                <Text style={styles.previewText} numberOfLines={3}>
-                  {dayNote || 'Tap to write...'}
-                </Text>
-              </BlurCard>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity onPress={onOpenAnswers} activeOpacity={0.8} style={styles.wideTileWrapper}>
-            <BlurCard style={styles.wideTile}>
-              <Text style={styles.tileLabel}>MY ANSWERS</Text>
-              <Text style={styles.previewText} numberOfLines={2}>
-                {insight ? (insightShort || insight.split(' ').slice(0, 10).join(' ') + '...') : 'Complete a session'}
-              </Text>
-            </BlurCard>
+              START RECORDING →
+            </Text>
           </TouchableOpacity>
+        </Card>
 
-          <View style={styles.halfRow}>
-            <View style={styles.halfTileWrapper}>
-              <BlurCard style={styles.halfTile}>
-                <Text style={styles.tileLabel}>TOP TRAIT</Text>
-                {traits && topTrait ? (
-                  <View style={styles.tileCenter}>
-                    <Text style={styles.bigNumber}>{traits[topTrait]}%</Text>
-                    <Text style={[styles.tileSubLabel, { marginTop: 2 }]}>{topTrait.toUpperCase()}</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.previewText}>Complete{'\n'}a session</Text>
-                )}
-              </BlurCard>
-            </View>
-
-            <TouchableOpacity
-              style={styles.halfTileWrapper}
-              activeOpacity={weeklyTraits ? 0.8 : 1}
-              onPress={() => {
-                if (!weeklyTraits) return;
-                if (!isPremium) { setShowPaywall(true); return; }
-                setShowWeeklyModal(true);
-              }}
-            >
-              <BlurCard style={styles.halfTile}>
-                <Text style={styles.tileLabel}>WEEKLY WHEEL</Text>
-                {!weeklyTraits ? (
-                  <Text style={styles.lockedText}>
-                    {'Unlocks after\n5 sessions\n\n'}{Math.max(0, 5 - sessionCount)} to go
-                  </Text>
-                ) : !isPremium ? (
-                  <View style={styles.tileCenter}>
-                    <Text style={{ fontSize: 20, color: colors.textGhost }}>🔒</Text>
-                    <Text style={[styles.tileSubLabel, { marginTop: spacing.sm }]}>PREMIUM</Text>
-                  </View>
-                ) : (
-                  <View style={styles.tileCenter}>
-                    <View pointerEvents="none"><MiniRadar traits={weeklyTraits} /></View>
-                  </View>
-                )}
-              </BlurCard>
-            </TouchableOpacity>
-
-            <PaywallScreen
-              visible={showPaywall}
-              source="weekly_wheel"
-              onClose={() => setShowPaywall(false)}
-              onSubscribed={onPremiumStatusChanged ?? (() => Promise.resolve())}
+        {/* ── Membership card (free users only) ─────────────────────────── */}
+        {!isPremium && (
+          <Card style={styles.membershipCard}>
+            <Lock
+              size={24}
+              color={colors['text-tertiary']}
+              strokeWidth={1.5}
             />
-          </View>
 
+            <Text
+              style={[
+                typography.labelCaps,
+                { color: colors['text-secondary'], marginTop: spacing.sm },
+              ]}
+            >
+              Infinite Journal
+            </Text>
+
+            <Text
+              style={[
+                typography.body,
+                {
+                  color: colors['text-secondary'],
+                  marginTop: spacing.xs,
+                  marginBottom: spacing.md,
+                },
+              ]}
+            >
+              Unlock voice sessions, unlimited journal, and deeper insights.
+            </Text>
+
+            <OutlinedPillButton
+              label="UNLOCK ACCESS"
+              onPress={() => setShowPaywall(true)}
+            />
+          </Card>
+        )}
+
+        {/* ── The Archive section ────────────────────────────────────────── */}
+        <SectionDivider label="THE ARCHIVE" />
+
+        {/* Streak + Session counts */}
+        <View style={styles.archiveStats}>
+          {streakDays > 0 ? (
+            <View style={styles.statItem}>
+              <Animated.Text
+                style={[
+                  typography.h1,
+                  {
+                    color: streakColor,
+                    transform: [{ scale: streakScaleAnim }],
+                  },
+                ]}
+              >
+                {displayStreak}
+              </Animated.Text>
+              <Text
+                style={[
+                  typography.labelCaps,
+                  { color: colors['text-tertiary'], marginTop: spacing.xs },
+                ]}
+              >
+                day streak
+              </Text>
+            </View>
+          ) : canRevive ? (
+            <View style={[styles.statItem, { alignItems: 'center' }]}>
+              <Text
+                style={[
+                  typography.labelCaps,
+                  { color: colors['text-tertiary'], marginBottom: spacing.sm },
+                ]}
+              >
+                Streak broken
+              </Text>
+              <OutlinedPillButton
+                label="RECLAIM YESTERDAY"
+                onPress={onReclaimStreak}
+              />
+            </View>
+          ) : null}
+
+          {(streakDays > 0 || canRevive) && (
+            <View style={[styles.statDivider, { backgroundColor: colors['border-strong'] }]} />
+          )}
+
+          <View style={styles.statItem}>
+            <Text style={[typography.h1, { color: colors['text-primary'] }]}>
+              {sessionCount}
+            </Text>
+            <Text
+              style={[
+                typography.labelCaps,
+                { color: colors['text-tertiary'], marginTop: spacing.xs },
+              ]}
+            >
+              sessions
+            </Text>
+          </View>
         </View>
 
+        {/* Day note */}
+        {!!dayNote && (
+          <Card style={{ marginTop: spacing.md }}>
+            <Text style={[typography.body, { color: colors['text-primary'] }]}>
+              {dayNote}
+            </Text>
+          </Card>
+        )}
+
+        {/* Latest insight */}
+        {!!insight && (
+          <View style={{ marginTop: spacing.md }}>
+            <Text
+              style={[
+                typography.labelCaps,
+                { color: colors['text-tertiary'], marginBottom: spacing.xs },
+              ]}
+            >
+              Your latest insight
+            </Text>
+            <Text
+              style={[
+                typography.h3,
+                { color: colors['text-secondary'] },
+              ]}
+            >
+              {insightShort || insight}
+            </Text>
+          </View>
+        )}
+
       </ScrollView>
+
+      {/* ── Left-edge swipe overlay (native gesture, competes with PagerView) ── */}
+      <PanGestureHandler
+        onHandlerStateChange={({ nativeEvent }: HandlerStateChangeEvent<PanGestureHandlerEventPayload>) => {
+          if (
+            nativeEvent.state === State.END &&
+            nativeEvent.translationX > 40 &&
+            Math.abs(nativeEvent.translationY) < 80
+          ) {
+            onOpenDrawer?.();
+          }
+        }}
+        activeOffsetX={[-9999, 5]}
+        failOffsetY={[-20, 20]}
+      >
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 30,
+            zIndex: 50,
+          }}
+          pointerEvents="box-only"
+        />
+      </PanGestureHandler>
+
+      {/* ── Modals (preserved from original) ──────────────────────────────── */}
+      <PaywallScreen
+        visible={showPaywall}
+        source="weekly_wheel"
+        onClose={() => setShowPaywall(false)}
+        onSubscribed={() => { onPremiumStatusChanged(); return Promise.resolve(); }}
+      />
 
       {traits && (
         <PersonalityBreakdownModal
@@ -236,6 +419,7 @@ export function HomeScreen({
           traits={traits}
         />
       )}
+
       {weeklyTraits && (
         <PersonalityBreakdownModal
           visible={showWeeklyModal}
@@ -243,106 +427,57 @@ export function HomeScreen({
           traits={weeklyTraits}
           eyebrow="THIS WEEK"
           heading="Weekly Breakdown"
-          takeaway={`Your strongest trait this week is ${TRAITS.reduce((a, b) => (weeklyTraits[a] ?? 0) >= (weeklyTraits[b] ?? 0) ? a : b)}`}
+          takeaway={`Your strongest trait this week is ${TRAITS.reduce(
+            (a, b) => ((weeklyTraits[a] ?? 0) >= (weeklyTraits[b] ?? 0) ? a : b)
+          )}`}
         />
       )}
     </View>
   );
-}
+};
+
+// ─── Backwards-compat export ─────────────────────────────────────────────────
+export const HomeScreen = TodayScreen;
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  scroll: { paddingHorizontal: spacing.lg },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  tabTitle: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 22,
-    color: colors.accent,
+  root: {
     flex: 1,
   },
-  headerRight: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.base,
-  },
-  headerDate: {
-    color: colors.textMuted,
-    fontSize: 9,
-    letterSpacing: 3,
-  },
-  sessionCta: {
-    borderWidth: 1,
-    borderColor: 'rgba(180,140,90,0.4)',
-    borderRadius: 2,
-    paddingVertical: spacing.base,
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  sessionCtaText: {
-    color: colors.accent,
-    fontSize: 11,
-    letterSpacing: 6,
-  },
-  bento: { gap: spacing.md },
-  wideTileWrapper: { width: '100%' },
-  wideTile: { padding: spacing.base },
-  halfRow: { flexDirection: 'row', gap: spacing.md },
-  halfTileWrapper: { flex: 1 },
-  halfTile: { padding: spacing.base, minHeight: CARD_SIZE },
-  tileLabel: {
-    color: colors.textSecondary,
-    fontSize: 8,
-    letterSpacing: 3,
-    marginBottom: spacing.sm,
-  },
-  tileSubLabel: {
-    color: colors.textMuted,
-    fontSize: 8,
-    letterSpacing: 2,
-  },
-  tileCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  streakInner: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
   },
-  streakNumber: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 40,
-    lineHeight: 44,
-    color: colors.accent,
+  scroll: {
+    paddingTop: 24,
   },
-  sessionCountNumber: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 24,
-    color: colors.textPrimary,
+  section: {
+    marginBottom: 32,
   },
-  bigNumber: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 32,
-    color: colors.accent,
+  talkCard: {
+    marginBottom: 16,
   },
-  previewText: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontStyle: 'italic',
-    lineHeight: 17,
+  membershipCard: {
+    marginBottom: 16,
   },
-  lockedText: {
-    color: colors.textGhost,
-    fontSize: 11,
-    lineHeight: 18,
+  archiveStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 32,
+    paddingVertical: 24,
   },
-  fireEmoji: {
-    fontSize: 32,
-    position: 'absolute',
-    top: -16,
+  statItem: {
+    alignItems: 'center',
+    position: 'relative',
   },
-  reclaimBtn: { marginTop: 6, alignSelf: 'center' },
-  reclaimTxt: { color: 'rgba(180,140,90,0.7)', fontSize: 9, letterSpacing: 2 },
+  statDivider: {
+    width: 1,
+    height: 64,
+    opacity: 0.3,
+  },
 });

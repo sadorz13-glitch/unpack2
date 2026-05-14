@@ -1,11 +1,56 @@
-import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  TouchableOpacity,
+  Linking,
+  TextInput as NativeTextInput,
+  Keyboard,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronLeft } from 'lucide-react-native';
+import { useTheme } from '../theme';
+import { PillButton } from './ui/PillButton';
+import { IconButton } from './ui/IconButton';
+import { TextInput } from './ui/TextInput';
 import { saveProfile } from '../lib/auth';
+import { PRIVACY_POLICY_URL } from '../constants';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 type ProfileData = { name: string; dob: string };
-type Props = { onComplete: (profile: ProfileData) => void };
+type Props = {
+  onComplete: (result: ProfileData) => void;
+};
+type Step = 1 | 2;
 
+// ── Validation helpers ────────────────────────────────────────────────────────
+function isNameValid(name: string): boolean {
+  return name.trim().length > 0;
+}
+
+function isDobValid(month: string, day: string, year: string): boolean {
+  const d = parseInt(day, 10);
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  return (
+    !Number.isNaN(d) && !Number.isNaN(m) && !Number.isNaN(y) &&
+    d >= 1 && d <= 31 &&
+    m >= 1 && m <= 12 &&
+    y >= 1900 && y <= new Date().getFullYear() - 13
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export function OnboardingScreen({ onComplete }: Props) {
+  const { colors, typography, spacing } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  const [step, setStep] = useState<Step>(1);
+
   const [name, setName] = useState('');
   const [day, setDay] = useState('');
   const [month, setMonth] = useState('');
@@ -13,112 +58,312 @@ export function OnboardingScreen({ onComplete }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleSubmit() {
+  const ddRef = useRef<NativeTextInput>(null);
+  const yyyyRef = useRef<NativeTextInput>(null);
+
+  async function handleCompleteSetup() {
     const trimmedName = name.trim();
     const d = parseInt(day, 10);
     const m = parseInt(month, 10);
     const y = parseInt(year, 10);
-
-    if (!trimmedName) { setError('Enter your name.'); return; }
-    if (!d || !m || !y || d < 1 || d > 31 || m < 1 || m > 12 || y < 1900 || y > new Date().getFullYear()) {
-      setError('Enter a valid date of birth.');
-      return;
-    }
-
     const dob = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
     setSaving(true);
+    setError('');
     try {
       await saveProfile(trimmedName, dob);
       onComplete({ name: trimmedName, dob });
-    } catch (e) {
+    } catch {
       setError('Something went wrong. Try again.');
       setSaving(false);
     }
   }
 
+  const screenPadding = spacing['margin-screen'];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 1 — Name
+  // ─────────────────────────────────────────────────────────────────────────
+  if (step === 1) {
+    return (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.fullScreen, { backgroundColor: colors['bg-primary'] }]}
+      >
+        <View
+          style={[
+            styles.headerRow,
+            { paddingTop: insets.top + spacing.sm, paddingHorizontal: screenPadding },
+          ]}
+        >
+          <View style={styles.headerSpacer} />
+          <Text
+            style={[
+              typography.labelCaps,
+              { color: colors['text-tertiary'], flex: 1, textAlign: 'center' },
+            ]}
+          >
+            Step 1 of 2
+          </Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View
+          style={[
+            styles.stepContent,
+            { paddingHorizontal: screenPadding, paddingBottom: insets.bottom + spacing.xl },
+          ]}
+        >
+          <Text
+            style={[
+              typography.h1,
+              { color: colors['text-primary'], textAlign: 'center', marginBottom: spacing.sm },
+            ]}
+          >
+            What should we call you?
+          </Text>
+
+          <Text
+            style={[
+              typography.body,
+              { color: colors['text-secondary'], textAlign: 'center', marginBottom: spacing.xl },
+            ]}
+          >
+            First name is fine.
+          </Text>
+
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="Your name"
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={() => { if (isNameValid(name)) setStep(2); }}
+          />
+
+          <View style={{ height: spacing.xl }} />
+
+          <PillButton
+            label="Continue"
+            onPress={() => setStep(2)}
+            disabled={!isNameValid(name)}
+            style={styles.fullWidth}
+          />
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 2 — Date of Birth
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-      <View style={styles.inner}>
-        <Text style={styles.headline}>Before we start.</Text>
-        <Text style={styles.sub}>Just the basics.</Text>
-
-        <Text style={styles.label}>YOUR NAME</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="First name"
-          placeholderTextColor="#555"
-          value={name}
-          onChangeText={setName}
-          autoCapitalize="words"
-          returnKeyType="next"
-          maxLength={100}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={[styles.fullScreen, { backgroundColor: colors['bg-primary'] }]}
+    >
+      <View
+        style={[
+          styles.headerRow,
+          { paddingTop: insets.top + spacing.sm, paddingHorizontal: screenPadding },
+        ]}
+      >
+        <IconButton
+          icon={ChevronLeft}
+          onPress={() => setStep(1)}
+          accessibilityLabel="Go back"
         />
+        <Text
+          style={[
+            typography.labelCaps,
+            { color: colors['text-tertiary'], flex: 1, textAlign: 'center' },
+          ]}
+        >
+          Step 2 of 2
+        </Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
-        <Text style={styles.label}>DATE OF BIRTH</Text>
+      <View
+        style={[
+          styles.stepContent,
+          { paddingHorizontal: screenPadding, paddingBottom: insets.bottom + spacing.xl },
+        ]}
+      >
+        <Text
+          style={[
+            typography.h1,
+            { color: colors['text-primary'], textAlign: 'center', marginBottom: spacing.sm },
+          ]}
+        >
+          When were you born?
+        </Text>
+
+        <Text
+          style={[
+            typography.body,
+            {
+              color: colors['text-secondary'],
+              textAlign: 'center',
+              marginBottom: spacing.xl,
+            },
+          ]}
+        >
+          Used to personalize your reflections. Stored securely, never shared with third parties.
+        </Text>
+
         <View style={styles.dobRow}>
-          <TextInput
-            style={[styles.input, styles.dobInput]}
-            placeholder="DD"
-            placeholderTextColor="#555"
-            value={day}
-            onChangeText={v => setDay(v.replace(/\D/g, '').slice(0, 2))}
-            keyboardType="number-pad"
-            maxLength={2}
-          />
-          <TextInput
-            style={[styles.input, styles.dobInput]}
-            placeholder="MM"
-            placeholderTextColor="#555"
+          <NativeTextInput
             value={month}
-            onChangeText={v => setMonth(v.replace(/\D/g, '').slice(0, 2))}
+            onChangeText={v => {
+              const val = v.replace(/\D/g, '').slice(0, 2);
+              setMonth(val);
+              if (val.length === 2) ddRef.current?.focus();
+            }}
+            placeholder="MM"
+            placeholderTextColor={colors['text-tertiary']}
             keyboardType="number-pad"
             maxLength={2}
+            style={[typography.bodyLarge, styles.dobInput, { color: colors['text-primary'], borderBottomColor: colors['border-strong'] }]}
           />
-          <TextInput
-            style={[styles.input, styles.dobInput, { flex: 1.5 }]}
-            placeholder="YYYY"
-            placeholderTextColor="#555"
+          <Text style={[styles.dobDivider, { color: colors['text-tertiary'] }]}>/</Text>
+          <NativeTextInput
+            ref={ddRef}
+            value={day}
+            onChangeText={v => {
+              const val = v.replace(/\D/g, '').slice(0, 2);
+              setDay(val);
+              if (val.length === 2) yyyyRef.current?.focus();
+            }}
+            placeholder="DD"
+            placeholderTextColor={colors['text-tertiary']}
+            keyboardType="number-pad"
+            maxLength={2}
+            style={[typography.bodyLarge, styles.dobInput, { color: colors['text-primary'], borderBottomColor: colors['border-strong'] }]}
+          />
+          <Text style={[styles.dobDivider, { color: colors['text-tertiary'] }]}>/</Text>
+          <NativeTextInput
+            ref={yyyyRef}
             value={year}
-            onChangeText={v => setYear(v.replace(/\D/g, '').slice(0, 4))}
+            onChangeText={v => {
+              const val = v.replace(/\D/g, '').slice(0, 4);
+              setYear(val);
+              if (val.length === 4) Keyboard.dismiss();
+            }}
+            placeholder="YYYY"
+            placeholderTextColor={colors['text-tertiary']}
             keyboardType="number-pad"
             maxLength={4}
+            style={[typography.bodyLarge, styles.dobInputYear, { color: colors['text-primary'], borderBottomColor: colors['border-strong'] }]}
           />
         </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error ? (
+          <Text
+            style={[
+              typography.caption,
+              { color: colors['status-danger'], textAlign: 'center', marginTop: spacing.sm },
+            ]}
+          >
+            {error}
+          </Text>
+        ) : null}
 
-        <TouchableOpacity style={styles.btn} onPress={handleSubmit} disabled={saving}>
-          <Text style={styles.btnText}>{saving ? 'Saving...' : "Let's go"}</Text>
-        </TouchableOpacity>
+        <Text
+          style={{
+            fontSize: 12,
+            fontStyle: 'italic',
+            color: colors['text-tertiary'],
+            lineHeight: 18,
+            marginTop: spacing.md,
+            marginBottom: spacing.md,
+            textAlign: 'center',
+          }}
+        >
+          {'Your date of birth helps us personalise questions and reflections for you. We use your zodiac sign as background context for your sessions — not as predictions or diagnoses. '}
+          <TouchableOpacity
+            onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+            accessibilityRole="link"
+            accessibilityLabel="Open Privacy Policy"
+          >
+            <Text style={{ color: colors['accent-primary'], fontSize: 12, fontStyle: 'italic' }}>
+              Learn more in our Privacy Policy.
+            </Text>
+          </TouchableOpacity>
+        </Text>
+
+        <PillButton
+          label={saving ? 'Saving...' : 'Complete Setup'}
+          onPress={handleCompleteSetup}
+          disabled={!isDobValid(month, day, year) || saving}
+          style={styles.fullWidth}
+        />
+
+        <View style={{ height: spacing.sm }} />
+
+        <Pressable
+          onPress={async () => {
+            const trimmed = name.trim();
+            try { await saveProfile(trimmed, ''); } catch { /* best-effort */ }
+            onComplete({ name: trimmed, dob: '' });
+          }}
+          accessibilityLabel="Skip"
+          accessibilityRole="button"
+          style={styles.skipButton}
+        >
+          <Text style={{ fontSize: 14, fontWeight: '500', color: colors['text-secondary'], textAlign: 'center' }}>
+            Skip
+          </Text>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0a0a' },
-  inner: { flex: 1, paddingHorizontal: 32, justifyContent: 'center' },
-  headline: { fontFamily: 'Georgia', fontSize: 36, fontStyle: 'italic', color: '#fff', marginBottom: 6 },
-  sub: { fontFamily: 'Georgia', fontSize: 18, fontStyle: 'italic', color: '#888', marginBottom: 48 },
-  label: { fontSize: 11, letterSpacing: 2, color: '#b48c5a', marginBottom: 8, fontWeight: '600' },
-  input: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 20,
+  fullScreen: {
+    flex: 1,
   },
-  dobRow: { flexDirection: 'row', gap: 10 },
-  dobInput: { flex: 1, textAlign: 'center' },
-  error: { color: '#e05252', fontSize: 13, marginBottom: 16, marginTop: -8 },
-  btn: {
-    backgroundColor: '#b48c5a',
-    borderRadius: 12,
-    paddingVertical: 16,
+  fullWidth: {
+    width: '100%',
+  },
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
   },
-  btnText: { color: '#000', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
+  headerSpacer: {
+    width: 44,
+  },
+  stepContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  dobRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dobInput: {
+    flex: 1,
+    height: 48,
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    paddingHorizontal: 0,
+  },
+  dobInputYear: {
+    flex: 1.5,
+    height: 48,
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    paddingHorizontal: 0,
+  },
+  dobDivider: {
+    fontSize: 18,
+    paddingHorizontal: 8,
+  },
+  skipButton: {
+    alignSelf: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
 });

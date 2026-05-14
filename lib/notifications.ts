@@ -1,5 +1,7 @@
 ﻿import * as Sentry from '@sentry/react-native';
 import * as Notifications from 'expo-notifications';
+import { supabase } from './supabase/client';
+import { getUserId } from './auth';
 
 export const DAILY_REMINDER_ID = 'unpack-daily-reminder';
 const STREAK_REMINDER_IDS = ['unpack-streak-daytime', 'unpack-streak-evening', 'unpack-streak-late'];
@@ -9,7 +11,30 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   return status === 'granted';
 }
 
+export async function hasCompletedSessionToday(userId: string): Promise<boolean> {
+  try {
+    const todayMidnightUTC = new Date();
+    todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+    const { count } = await supabase
+      .from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', todayMidnightUTC.toISOString());
+    return (count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function scheduleDailyReminder(hour = 20, minute = 0): Promise<void> {
+  const uid = getUserId();
+  if (uid) {
+    const completed = await hasCompletedSessionToday(uid);
+    if (completed) {
+      await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_ID).catch(() => {});
+      return;
+    }
+  }
   await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_ID).catch(() => {});
   await Notifications.scheduleNotificationAsync({
     identifier: DAILY_REMINDER_ID,
@@ -26,6 +51,10 @@ export async function scheduleDailyReminder(hour = 20, minute = 0): Promise<void
 }
 
 export async function cancelDailyReminder(): Promise<void> {
+  await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_ID).catch(() => {});
+}
+
+export async function cancelTodayReminder(): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(DAILY_REMINDER_ID).catch(() => {});
 }
 

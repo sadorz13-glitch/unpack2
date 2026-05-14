@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
@@ -67,7 +67,7 @@ const SLIDES = [
   {
     Icon: TalkIllustration,
     label: 'TALK IT OUT',
-    title: 'your ai therapist',
+    title: 'your ai guide',
     body: "Have a real conversation about what's surfaced in your sessions. It knows your patterns. Unlocks after your first session.",
   },
   {

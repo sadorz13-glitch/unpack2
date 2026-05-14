@@ -1,8 +1,7 @@
-import React from 'react';
 import { Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { FullRadar } from './Radar';
 import { TRAITS, TRAIT_DESCRIPTIONS } from '../constants';
-import { fontFamilies } from '../theme';
+import { fontFamilies, colors } from '../theme';
 
 type Props = {
   visible: boolean;
@@ -67,7 +66,7 @@ const styles = StyleSheet.create({
   scroll: { padding: 28, paddingTop: 8, paddingBottom: 60 },
   eyebrow: {
     color: 'rgba(180,140,90,0.55)',
-    fontSize: 10,
+    fontSize: 12,
     letterSpacing: 3,
     marginBottom: 8,
   },
@@ -98,8 +97,8 @@ const styles = StyleSheet.create({
   },
   traitName: {
     fontFamily: fontFamilies.serifRegular,
-    color: '#b48c5a',
-    fontSize: 11,
+    color: colors['accent-gold'],
+    fontSize: 12,
     letterSpacing: 2.5,
     textTransform: 'uppercase',
   },

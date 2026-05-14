@@ -9,7 +9,7 @@ export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const isSpeakingRef = useRef(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
-  const ttsoundRef = useRef<any>(null);
+  const ttsoundRef = useRef<Audio.Sound | null>(null);
   const ttsResolveRef = useRef<(() => void) | null>(null);
 
   function setSpeaking(val: boolean) {
@@ -39,9 +39,11 @@ export function useTTS() {
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
           defaultToSpeakerphone: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
         });
-      } catch (audioErr) {
-        console.log('[TTS] setAudioMode failed (non-fatal, continuing):', audioErr);
+      } catch {
+        // non-fatal — audio session may already be configured correctly
       }
 
       const token = await getAccessToken();
@@ -82,7 +84,7 @@ export function useTTS() {
 
       await new Promise<void>((resolve, reject) => {
         ttsResolveRef.current = resolve;
-        sound.setOnPlaybackStatusUpdate((status: any) => {
+        sound.setOnPlaybackStatusUpdate((status: { isLoaded: boolean; didJustFinish?: boolean; error?: string }) => {
           if (status.isLoaded && status.didJustFinish) {
             ttsResolveRef.current = null;
             ttsoundRef.current = null;
@@ -95,12 +97,12 @@ export function useTTS() {
             reject(new Error(status.error));
           }
         });
+        sound.setVolumeAsync(1.0).catch(() => {});
         sound.playAsync()
           .then(() => {})
-          .catch(e => { console.log('[TTS] playAsync failed:', e); reject(e); });
+          .catch(e => { reject(e); });
       });
-    } catch (e) {
-      console.log('[TTS] catch — falling back to Speech.speak, reason:', e);
+    } catch {
       setSpeaking(false);
       await new Promise<void>(resolve => {
         Speech.speak(text, { rate: 0.92, onDone: resolve, onStopped: resolve, onError: () => resolve() });

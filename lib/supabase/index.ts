@@ -9,6 +9,28 @@ import type { QAPair } from '../../types';
 
 type StreakResult = { streak: number; total: number };
 
+type SessionDateRow = { created_at: string };
+type NoteDateRow = { date: string };
+type RevivalRow = { revived_date: string };
+type SessionIdRow = { id: string; created_at: string };
+type AnswerRow = { session_id: string; question: string; answer: string };
+type TraitsRow = { traits: Record<string, number> };
+
+export type AnswerGroup = {
+  date: string;
+  sessionId: string;
+  isToday: boolean;
+  label: string;
+  items: AnswerRow[];
+};
+
+export type LastSession = {
+  insight: string;
+  insight_short: string | null;
+  traits: Record<string, number> | null;
+  topic: string | null;
+};
+
 export async function saveSession(
   answers: QAPair[],
   insight: string,
@@ -69,13 +91,13 @@ export async function loadStreakAndCount(
     const now = new Date();
     const today = now.toLocaleDateString('en-CA');
 
-    const sessionDays = (data || []).map((s: any) =>
+    const sessionDays = (data || []).map((s: SessionDateRow) =>
       new Date(
         /Z$|[+-]\d{2}:\d{2}$/.test(s.created_at) ? s.created_at : s.created_at + 'Z'
       ).toLocaleDateString('en-CA')
     );
-    const noteDays = (noteData || []).map((n: any) => n.date);
-    const revivalDays = (revivalData || []).map((r: any) => r.revived_date as string);
+    const noteDays = (noteData || []).map((n: NoteDateRow) => n.date);
+    const revivalDays = (revivalData || []).map((r: RevivalRow) => r.revived_date);
     let days = [...new Set([...sessionDays, ...noteDays, ...revivalDays])].sort().reverse();
 
     if (days.length === 0) {
@@ -123,7 +145,7 @@ export async function loadStreakAndCount(
   }
 }
 
-export async function loadAllAnswers(): Promise<any[]> {
+export async function loadAllAnswers(): Promise<AnswerGroup[]> {
   try {
     const uid = getUserId();
     if (!uid) throw new Error('Not authenticated');
@@ -138,17 +160,17 @@ export async function loadAllAnswers(): Promise<any[]> {
     const { data: ans } = await supabase
       .from('answers')
       .select('session_id, question, answer')
-      .in('session_id', sessions.map((s: any) => s.id))
+      .in('session_id', sessions.map((s: SessionIdRow) => s.id))
       .order('id', { ascending: true });
 
     const today = new Date().toLocaleDateString('en-CA');
     const toUtcDate = (ts: string) =>
       new Date(/Z$|[+-]\d{2}:\d{2}$/.test(ts) ? ts : ts + 'Z');
 
-    return sessions.map((s: any) => {
+    return sessions.map((s: SessionIdRow) => {
       const dateKey = toUtcDate(s.created_at).toLocaleDateString('en-CA');
       const isToday = dateKey === today;
-      const items = (ans || []).filter((a: any) => a.session_id === s.id);
+      const items = (ans || []).filter((a: AnswerRow) => a.session_id === s.id);
       let label;
       if (isToday) {
         label = 'Today';
@@ -196,7 +218,7 @@ export async function loadWeeklyTraits(): Promise<Record<string, number> | null>
     const averaged: Record<string, number> = {};
     TRAITS.forEach((t: string) => {
       const vals = data
-        .map((s: any) => s.traits?.[t] || 0)
+        .map((s: TraitsRow) => s.traits?.[t] || 0)
         .filter((v: number) => v > 0);
       averaged[t] =
         vals.length > 0
@@ -210,7 +232,7 @@ export async function loadWeeklyTraits(): Promise<Record<string, number> | null>
   }
 }
 
-export async function loadLastSession(): Promise<any> {
+export async function loadLastSession(): Promise<LastSession | null> {
   try {
     const uid = getUserId();
     if (!uid) throw new Error('Not authenticated');
@@ -254,4 +276,101 @@ export async function recordStreakRevival(date: string): Promise<boolean> {
     .from('streak_revivals')
     .insert({ user_id: userId, revived_date: date });
   return !error;
+}
+
+export async function computeCanRevive(userId: string, date: string): Promise<boolean> {
+  try {
+    // 1. Return false if date is today or in the future
+    const today = new Date().toLocaleDateString('en-CA');
+    if (date >= today) return false;
+
+    // 2. Return false if date is more than 7 days ago
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoStr = sevenDaysAgo.toLocaleDateString('en-CA');
+    if (date < sevenDaysAgoStr) return false;
+
+    // 3. Check if user already has activity on that date
+    const dayStart = new Date(date + 'T00:00:00').toISOString();
+    const dayEnd = new Date(date + 'T23:59:59').toISOString();
+    const [
+      { count: sessionCount },
+      { count: noteCount },
+      { count: revivalCount },
+    ] = await Promise.all([
+      supabase
+        .from('sessions')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('created_at', dayStart)
+        .lte('created_at', dayEnd),
+      supabase
+        .from('day_notes')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('date', date),
+      supabase
+        .from('streak_revivals')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('revived_date', date),
+    ]);
+    if ((sessionCount ?? 0) + (noteCount ?? 0) + (revivalCount ?? 0) > 0) return false;
+
+    // 4. Flanking check: activity within 60 days before AND after the date
+    const dateObj = new Date(date + 'T12:00:00');
+
+    const windowStart = new Date(dateObj);
+    windowStart.setDate(windowStart.getDate() - 60);
+    const windowStartStr = windowStart.toLocaleDateString('en-CA');
+
+    const windowEnd = new Date(dateObj);
+    windowEnd.setDate(windowEnd.getDate() + 60);
+    const windowEndStr = windowEnd.toLocaleDateString('en-CA') <= today
+      ? windowEnd.toLocaleDateString('en-CA')
+      : today;
+
+    const [beforeSessions, beforeNotes, afterSessions, afterNotes] = await Promise.all([
+      supabase
+        .from('sessions')
+        .select('created_at')
+        .eq('user_id', userId)
+        .gte('created_at', windowStart.toISOString())
+        .lt('created_at', new Date(date + 'T00:00:00').toISOString())
+        .limit(1),
+      supabase
+        .from('day_notes')
+        .select('date')
+        .eq('user_id', userId)
+        .gte('date', windowStartStr)
+        .lt('date', date)
+        .limit(1),
+      supabase
+        .from('sessions')
+        .select('created_at')
+        .eq('user_id', userId)
+        .gt('created_at', new Date(date + 'T23:59:59').toISOString())
+        .lte('created_at', new Date(windowEndStr + 'T23:59:59').toISOString())
+        .limit(1),
+      supabase
+        .from('day_notes')
+        .select('date')
+        .eq('user_id', userId)
+        .gt('date', date)
+        .lte('date', windowEndStr)
+        .limit(1),
+    ]);
+
+    const hasBefore = (beforeSessions.data?.length ?? 0) > 0 || (beforeNotes.data?.length ?? 0) > 0;
+    const hasAfter = (afterSessions.data?.length ?? 0) > 0 || (afterNotes.data?.length ?? 0) > 0;
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date === yesterday.toLocaleDateString('en-CA');
+
+    if (isYesterday) return hasBefore;
+    return hasBefore && hasAfter;
+  } catch {
+    return false;
+  }
 }

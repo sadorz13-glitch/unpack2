@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, type Dispatch, type SetStateAction } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,9 @@ import {
   Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../theme';
+import { X } from 'lucide-react-native';
+import { useTheme } from '../theme';
+import { IconButton } from '../components/ui/IconButton';
 import { saveJournalEntry, updateJournalEntry } from '../lib/journalHelpers';
 import { addPendingEntry } from '../lib/offlineQueue';
 import { track } from '../lib/analytics';
@@ -36,17 +38,17 @@ type Props = {
   horoscopeContext: string;
   insight: string;
   topic: string;
-  streakDays: number;
   isActive: boolean;
   isConnected?: boolean;
   journalRefreshTick?: number;
   isRecording?: boolean;
   micPulseAnim?: Animated.Value;
   meteringLevelAnim?: Animated.Value;
-  onStartVoiceRecording?: (setterFn: any) => void;
-  onStopVoiceRecording?: (setterFn: any) => void;
+  onStartVoiceRecording?: (setterFn: Dispatch<SetStateAction<string>>) => void;
+  onStopVoiceRecording?: (setterFn: Dispatch<SetStateAction<string>>) => void;
   writingVoiceModeRef?: React.MutableRefObject<boolean>;
   fontsLoaded?: boolean;
+  onClose?: () => void;
 };
 
 function wordCount(text: string): number {
@@ -65,13 +67,15 @@ function formatHistoryLabel(dateStr: string): string {
 }
 
 export function WritingScreen({
-  userId, horoscopeContext, insight, topic, streakDays, isActive,
+  userId, horoscopeContext, insight, topic, isActive,
   isConnected = true, journalRefreshTick,
   isRecording, micPulseAnim, meteringLevelAnim,
   onStartVoiceRecording, onStopVoiceRecording, writingVoiceModeRef,
   fontsLoaded = true,
+  onClose,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const inputRef = useRef<TextInput>(null);
 
   const [view, setView] = useState<'editor' | 'history'>('editor');
@@ -93,6 +97,7 @@ export function WritingScreen({
   const [editingText, setEditingText] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  // REVIEW: verify [] is intentional — possible stale closure on fetchPrompt/loadTodayEntries
   React.useEffect(() => {
     fetchPrompt();
     loadTodayEntries();
@@ -107,10 +112,12 @@ export function WritingScreen({
       if (isRecording && onStopVoiceRecording) onStopVoiceRecording(setEntry);
       setView('editor'); setSearchQuery(''); setEditingId(null); setEditingText('');
     }
+    // REVIEW: isRecording, onStopVoiceRecording not in deps — stale closure risk in else branch
   }, [isActive]);
 
   React.useEffect(() => {
     if (journalRefreshTick && journalRefreshTick > 0) loadTodayEntries();
+    // REVIEW: loadTodayEntries defined in component, not in deps
   }, [journalRefreshTick]);
 
   async function fetchPrompt() {
@@ -215,22 +222,71 @@ export function WritingScreen({
 
   const wc = wordCount(entry);
 
+  function renderBanner() {
+    const bannerStyle = [styles.banner, { borderLeftColor: colors['accent-gold'], backgroundColor: colors['bg-surface'] }];
+    if (promptLoading || reflectionLoading) {
+      return (
+        <View style={bannerStyle}>
+          <ActivityIndicator color={colors['accent-gold']} size="small" />
+        </View>
+      );
+    }
+    if (reflection) {
+      return (
+        <View style={bannerStyle}>
+          <Text style={[styles.reflectionText, { color: colors['text-secondary'] }]}>{reflection}</Text>
+          <TouchableOpacity onPress={fetchPrompt} style={styles.newPromptBtn}>
+            <Text style={[styles.newPromptText, { color: colors['accent-gold'] }]}>Write more</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (prompt) {
+      return (
+        <TouchableOpacity style={bannerStyle} onPress={fetchPrompt} activeOpacity={0.7}>
+          <Text style={[styles.promptLabel, { color: colors['accent-gold'] }]}>PROMPT</Text>
+          <Text style={[styles.promptText, { color: colors['text-secondary'] }]}>{prompt}</Text>
+          <Text style={[styles.tapToRefresh, { color: colors['text-tertiary'] }]}>tap to refresh</Text>
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  }
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Write</Text>
-        {streakDays > 0 && (
-          <Text style={styles.streak}>{streakDays} day streak</Text>
+    <View style={[styles.container, { backgroundColor: colors['bg-primary'], paddingTop: insets.top }]}>
+
+      {/* Header row — contains optional close button, title, streak, and tabs */}
+      <View style={[styles.header, { borderBottomColor: colors['border-subtle'] }]}>
+        {onClose ? (
+          <IconButton
+            icon={X}
+            onPress={onClose}
+            accessibilityLabel="Close"
+            color={colors['text-tertiary']}
+            style={styles.closeBtn}
+          />
+        ) : (
+          <View style={styles.closeBtn} />
         )}
+        <Text style={[styles.headerTitle, { color: colors['accent-gold'] }]}>Write</Text>
         <View style={styles.headerTabs}>
           <TouchableOpacity onPress={() => switchView('editor')} style={styles.headerTab}>
-            <Text style={[styles.headerTabText, view === 'editor' && styles.headerTabActive]}>
+            <Text style={[
+              styles.headerTabText,
+              { color: colors['text-tertiary'] },
+              view === 'editor' && { color: colors['accent-gold'] },
+            ]}>
               Today
             </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => switchView('history')} style={styles.headerTab}>
-            <Text style={[styles.headerTabText, view === 'history' && styles.headerTabActive]}>
+            <Text style={[
+              styles.headerTabText,
+              { color: colors['text-tertiary'] },
+              view === 'history' && { color: colors['accent-gold'] },
+            ]}>
               History
             </Text>
           </TouchableOpacity>
@@ -247,43 +303,25 @@ export function WritingScreen({
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
           >
-            {(promptLoading || reflectionLoading) ? (
-              <View style={styles.banner}>
-                <ActivityIndicator color={colors.accent} size="small" />
-              </View>
-            ) : reflection ? (
-              <View style={styles.banner}>
-                <Text style={styles.reflectionText}>{reflection}</Text>
-                <TouchableOpacity onPress={fetchPrompt} style={styles.newPromptBtn}>
-                  <Text style={styles.newPromptText}>Write more</Text>
-                </TouchableOpacity>
-              </View>
-            ) : prompt ? (
-              <TouchableOpacity style={styles.banner} onPress={fetchPrompt} activeOpacity={0.7}>
-                <Text style={styles.promptLabel}>PROMPT</Text>
-                <Text style={styles.promptText}>{prompt}</Text>
-                <Text style={styles.tapToRefresh}>tap to refresh</Text>
-              </TouchableOpacity>
-            ) : null}
+            {renderBanner()}
 
             {fontsLoaded && (
               <TextInput
                 ref={inputRef}
-                style={styles.editor}
+                style={[styles.editor, { color: colors['text-primary'] }]}
                 multiline
                 placeholder="Start writing..."
-                placeholderTextColor="rgba(255,255,255,0.2)"
+                placeholderTextColor={colors['text-tertiary']}
                 value={entry}
                 onChangeText={setEntry}
                 autoCorrect
                 textAlignVertical="top"
                 scrollEnabled={false}
-                allowFontScaling={false}
               />
             )}
 
-            <View style={styles.toolbar}>
-              <Text style={styles.wordCount}>{wc} {wc === 1 ? 'word' : 'words'}</Text>
+            <View style={[styles.toolbar, { borderTopColor: colors['border-subtle'] }]}>
+              <Text style={[styles.wordCount, { color: colors['text-tertiary'] }]}>{wc} {wc === 1 ? 'word' : 'words'}</Text>
 
               {onStartVoiceRecording && micPulseAnim && meteringLevelAnim ? (
                 <TouchableOpacity
@@ -304,11 +342,11 @@ export function WritingScreen({
                   style={{ marginRight: 10, opacity: isConnected ? 1 : 0.3 }}
                 >
                   <Animated.View style={[styles.micRing, {
-                    borderColor: isRecording ? 'rgba(180,140,90,0.5)' : colors.border,
+                    borderColor: isRecording ? colors['accent-gold'] : colors['border-strong'],
                     transform: [{ scale: micPulseAnim }],
                   }]}>
                     <Animated.View style={[styles.micDot, {
-                      backgroundColor: isRecording ? colors.accent : '#2a2822',
+                      backgroundColor: isRecording ? colors['accent-gold'] : colors['bg-surface'],
                       transform: [{ scale: meteringLevelAnim }],
                     }]} />
                   </Animated.View>
@@ -317,27 +355,27 @@ export function WritingScreen({
 
               <TouchableOpacity
                 onPress={handleSave}
-                style={[styles.saveBtn, (!entry.trim() || isSaving) && styles.saveBtnDisabled]}
+                style={[styles.saveBtn, { backgroundColor: colors['accent-gold'] }, (!entry.trim() || isSaving) && styles.saveBtnDisabled]}
                 disabled={!entry.trim() || isSaving}
                 activeOpacity={0.7}
               >
                 {isSaving ? (
-                  <ActivityIndicator color="#000" size="small" />
+                  <ActivityIndicator color={colors['bg-primary']} size="small" />
                 ) : (
-                  <Text style={styles.saveBtnText}>Save</Text>
+                  <Text style={[styles.saveBtnText, { color: colors['bg-primary'] }]}>Save</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             {todayEntries.length > 0 && (
               <View style={styles.todaySection}>
-                <Text style={styles.todaySectionLabel}>EARLIER TODAY</Text>
+                <Text style={[styles.todaySectionLabel, { color: colors['text-tertiary'] }]}>EARLIER TODAY</Text>
                 {todayEntries.map((item) =>
                   editingId === item.id ? (
-                    <View key={item.id} style={styles.historyCard}>
-                      <Text style={styles.historyTime}>{item.time_label}</Text>
+                    <View key={item.id} style={[styles.historyCard, { backgroundColor: colors['bg-surface'], borderColor: colors['border-subtle'] }]}>
+                      <Text style={[styles.historyTime, { color: colors['text-tertiary'] }]}>{item.time_label}</Text>
                       <TextInput
-                        style={styles.editInput}
+                        style={[styles.editInput, { color: colors['text-primary'], borderBottomColor: colors['border-subtle'] }]}
                         value={editingText}
                         onChangeText={setEditingText}
                         multiline
@@ -346,25 +384,25 @@ export function WritingScreen({
                       />
                       <View style={styles.editActions}>
                         <TouchableOpacity onPress={() => setEditingId(null)}>
-                          <Text style={styles.cancelText}>Cancel</Text>
+                          <Text style={[styles.cancelText, { color: colors['text-tertiary'] }]}>Cancel</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => saveEdit(item.id)} disabled={isSavingEdit}>
-                          <Text style={[styles.saveEditText, isSavingEdit && { opacity: 0.4 }]}>Save</Text>
+                          <Text style={[styles.saveEditText, { color: colors['accent-gold'] }, isSavingEdit && { opacity: 0.4 }]}>Save</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   ) : (
                     <TouchableOpacity
                       key={item.id}
-                      style={styles.historyCard}
+                      style={[styles.historyCard, { backgroundColor: colors['bg-surface'], borderColor: colors['border-subtle'] }]}
                       onPress={() => { setEditingId(item.id); setEditingText(item.note); }}
                       activeOpacity={0.75}
                     >
                       <View style={styles.historyMeta}>
-                        <Text style={styles.historyTime}>{item.time_label}</Text>
-                        <Text style={styles.editHint}>tap to edit</Text>
+                        <Text style={[styles.historyTime, { color: colors['text-tertiary'] }]}>{item.time_label}</Text>
+                        <Text style={[styles.editHint, { color: colors['text-tertiary'] }]}>tap to edit</Text>
                       </View>
-                      <Text style={styles.historyNote}>{item.note}</Text>
+                      <Text style={[styles.historyNote, { color: colors['text-secondary'] }]}>{item.note}</Text>
                     </TouchableOpacity>
                   )
                 )}
@@ -374,11 +412,11 @@ export function WritingScreen({
         </KeyboardAvoidingView>
       ) : (
         <View style={{ flex: 1 }}>
-          <View style={styles.searchBar}>
+          <View style={[styles.searchBar, { backgroundColor: colors['bg-surface'] }]}>
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: colors['text-primary'] }]}
               placeholder="Search your entries..."
-              placeholderTextColor="rgba(255,255,255,0.25)"
+              placeholderTextColor={colors['text-tertiary']}
               value={searchQuery}
               onChangeText={setSearchQuery}
               returnKeyType="search"
@@ -387,14 +425,14 @@ export function WritingScreen({
           </View>
           <ScrollView style={styles.historyScroll} contentContainerStyle={styles.historyContent} keyboardShouldPersistTaps="handled">
             {historyLoading ? (
-              <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} />
+              <ActivityIndicator color={colors['accent-gold']} style={{ marginTop: 40 }} />
             ) : (() => {
               const q = searchQuery.trim().toLowerCase();
               const filtered = q
                 ? history.filter(i => new RegExp('\\b' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(i.note ?? ''))
                 : history;
               if (filtered.length === 0) return (
-                <Text style={styles.emptyText}>
+                <Text style={[styles.emptyText, { color: colors['text-tertiary'] }]}>
                   {q ? 'No entries match that.' : 'No entries yet. Start writing.'}
                 </Text>
               );
@@ -405,11 +443,11 @@ export function WritingScreen({
               }
               return Array.from(dateMap.entries()).map(([date, items]) => (
                 <View key={date} style={styles.historyGroup}>
-                  <Text style={styles.historyGroupLabel}>{formatHistoryLabel(date)}</Text>
+                  <Text style={[styles.historyGroupLabel, { color: colors['accent-gold'] }]}>{formatHistoryLabel(date)}</Text>
                   {items.map(item => (
-                    <View key={item.id} style={styles.historyCard}>
-                      <Text style={styles.historyTime}>{item.time_label}</Text>
-                      <Text style={styles.historyNote} numberOfLines={4}>{item.note}</Text>
+                    <View key={item.id} style={[styles.historyCard, { backgroundColor: colors['bg-surface'], borderColor: colors['border-subtle'] }]}>
+                      <Text style={[styles.historyTime, { color: colors['text-tertiary'] }]}>{item.time_label}</Text>
+                      <Text style={[styles.historyNote, { color: colors['text-secondary'] }]} numberOfLines={4}>{item.note}</Text>
                     </View>
                   ))}
                 </View>
@@ -424,59 +462,49 @@ export function WritingScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
+  container: { flex: 1 },
+  closeBtn: {
+    width: 44,
+    height: 44,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(180,140,90,0.2)',
   },
   headerTitle: {
     fontFamily: 'DMSerifDisplay_400Regular_Italic',
     fontSize: 22,
-    color: colors.accent,
     flex: 1,
   },
-  streak: {
-    fontSize: 11,
-    color: colors.accent,
-    marginRight: 16,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
   headerTabs: { flexDirection: 'row', gap: 16 },
-  headerTab: { paddingVertical: 4 },
-  headerTabText: { fontSize: 13, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5 },
-  headerTabActive: { color: colors.accent },
+  headerTab: { paddingVertical: 4, paddingHorizontal: 4 },
+  headerTabText: { fontSize: 13, letterSpacing: 0.5 },
   banner: {
     marginHorizontal: 20,
     marginTop: 16,
     marginBottom: 4,
     padding: 14,
     borderLeftWidth: 2,
-    borderLeftColor: colors.accent,
-    backgroundColor: 'rgba(180,140,90,0.08)',
     borderRadius: 6,
   },
   promptLabel: {
     fontSize: 9,
     letterSpacing: 2,
-    color: colors.accent,
     marginBottom: 6,
     textTransform: 'uppercase',
   },
-  promptText: { fontSize: 15, color: 'rgba(255,255,255,0.75)', lineHeight: 22, fontStyle: 'italic' },
-  tapToRefresh: { fontSize: 10, color: 'rgba(180,140,90,0.5)', textAlign: 'right', marginTop: 8 },
-  reflectionText: { fontSize: 14, color: 'rgba(255,255,255,0.8)', lineHeight: 21 },
+  promptText: { fontSize: 15, lineHeight: 22, fontStyle: 'italic' },
+  tapToRefresh: { fontSize: 10, textAlign: 'right', marginTop: 8 },
+  reflectionText: { fontSize: 14, lineHeight: 21 },
   newPromptBtn: { marginTop: 10, alignSelf: 'flex-start' },
-  newPromptText: { fontSize: 12, color: colors.accent, textDecorationLine: 'underline' },
+  newPromptText: { fontSize: 12, textDecorationLine: 'underline' },
   editor: {
     marginHorizontal: 20,
     marginTop: 12,
     fontSize: 17,
-    color: '#fff',
     lineHeight: Platform.OS === 'ios' ? 22 : 28,
     minHeight: 150,
     paddingTop: 0,
@@ -489,11 +517,9 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
   },
-  wordCount: { flex: 1, textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.3)' },
+  wordCount: { flex: 1, textAlign: 'center', fontSize: 12 },
   saveBtn: {
-    backgroundColor: colors.accent,
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 20,
@@ -501,22 +527,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   saveBtnDisabled: { opacity: 0.35 },
-  saveBtnText: { color: '#000', fontWeight: '600', fontSize: 14 },
+  saveBtnText: { fontWeight: '600', fontSize: 14 },
   todaySection: { marginTop: 24, paddingHorizontal: 20, paddingBottom: 20 },
   todaySectionLabel: {
     fontSize: 9,
     letterSpacing: 3,
-    color: 'rgba(255,255,255,0.25)',
     marginBottom: 12,
     textTransform: 'uppercase',
   },
   editInput: {
-    color: '#fff',
     fontSize: 14,
     lineHeight: 22,
     marginTop: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.15)',
     paddingBottom: 8,
     minHeight: 60,
   },
@@ -526,24 +549,22 @@ const styles = StyleSheet.create({
     gap: 16,
     marginTop: 10,
   },
-  cancelText: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
-  saveEditText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
-  editHint: { fontSize: 10, color: 'rgba(255,255,255,0.2)', letterSpacing: 0.5 },
+  cancelText: { fontSize: 13 },
+  saveEditText: { fontSize: 13, fontWeight: '600' },
+  editHint: { fontSize: 10, letterSpacing: 0.5 },
   searchBar: {
     marginHorizontal: 20,
     marginTop: 16,
     marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 13,
   },
-  searchInput: { color: '#fff', fontSize: 16 },
+  searchInput: { fontSize: 16 },
   historyScroll: { flex: 1 },
   historyGroupLabel: {
     fontSize: 10,
     letterSpacing: 2,
-    color: colors.accent,
     textTransform: 'uppercase',
     marginBottom: 10,
     marginTop: 4,
@@ -551,22 +572,19 @@ const styles = StyleSheet.create({
   historyGroup: { marginBottom: 8 },
   historyContent: { padding: 20, paddingBottom: 120, gap: 16 },
   historyCard: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 10,
     padding: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(180,140,90,0.15)',
   },
   historyMeta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  historyTime: { fontSize: 11, color: 'rgba(255,255,255,0.3)' },
-  historyNote: { fontSize: 14, color: 'rgba(255,255,255,0.65)', lineHeight: 22 },
-  emptyText: { textAlign: 'center', marginTop: 60, color: 'rgba(255,255,255,0.3)', fontSize: 15 },
+  historyTime: { fontSize: 11 },
+  historyNote: { fontSize: 14, lineHeight: 22 },
+  emptyText: { textAlign: 'center', marginTop: 60, fontSize: 15 },
   micRing: {
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -574,6 +592,5 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#2a2822',
   },
 });

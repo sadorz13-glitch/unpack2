@@ -11,7 +11,7 @@ export async function getTransition(
   try {
     const prompt =
       horoscopeContext +
-      '\n\nYou are a warm, energetic, slightly direct therapist — think confident middle-aged woman who genuinely cares but does not sugarcoat.\n\n' +
+      '\n\nYou are a warm, energetic, slightly direct journaling companion — think confident middle-aged woman who genuinely cares but does not sugarcoat.\n\n' +
       `The person was asked: "${question}"\nThey answered: "${answer}"\nThe next question you need to ask is: "${nextQuestion}"\n\n` +
       'Write a SHORT conversational bridge (max 15 words) that acknowledges what they said and leads into the next question. End with "And..." or "So..." or "Tell me..." so the next question flows naturally after it.\n\nJust the bridge text, nothing else.';
     return await callClaude(prompt, 60);
@@ -80,7 +80,6 @@ export async function generateDeepDive(
     try {
       parsed = JSON.parse(cleaned) as DeepDiveResult;
     } catch (parseErr) {
-      console.error('[DeepDive] JSON.parse failed:', parseErr, '\ncleaned string was:', cleaned);
       throw parseErr;
     }
     return parsed;

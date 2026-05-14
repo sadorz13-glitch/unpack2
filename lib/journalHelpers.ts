@@ -18,7 +18,9 @@ export async function updateJournalEntry(id: string, note: string): Promise<void
   }
 }
 
-export async function loadJournalEntries(date: string): Promise<any[]> {
+export type JournalEntry = { id: string; note: string; time_label: string; created_at?: string; saved?: boolean };
+
+export async function loadJournalEntries(date: string): Promise<JournalEntry[]> {
   try {
     const { data } = await supabase
       .from('day_notes')

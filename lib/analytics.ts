@@ -11,14 +11,14 @@ try {
   mp = null;
 }
 
-export function track(event: string, props?: Record<string, any>) {
+export function track(event: string, props?: Record<string, unknown>): void {
   mp?.track(event, props ?? {});
 }
 
-export function identifyUser(userId: string) {
+export function identifyUser(userId: string): void {
   mp?.identify(userId);
 }
 
-export function resetAnalytics() {
+export function resetAnalytics(): void {
   mp?.reset();
 }

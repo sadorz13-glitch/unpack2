@@ -10,7 +10,7 @@ DECLARE
 BEGIN
   UPDATE profiles
     SET vent_messages_used = vent_messages_used + 1
-    WHERE id = user_uuid
+    WHERE user_id = user_uuid
     RETURNING vent_messages_used INTO new_count;
   RETURN COALESCE(new_count, 0);
 END;

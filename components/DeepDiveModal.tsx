@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import { AILabel } from './ui';
 import { track } from '../lib/analytics';
 import { generateDeepDive } from '../lib/ai/session';
 import { DeepDiveResult } from '../types';
+import { useTheme } from '../theme';
 
 type Props = {
   visible: boolean;
@@ -21,9 +23,12 @@ const SECTIONS: { key: keyof Omit<DeepDiveResult, 'quote' | 'reflection_prompt'>
 ];
 
 export default function DeepDiveModal({ visible, onClose, answers, traits, recentInsights, topic, onVent }: Props) {
+  const { colors } = useTheme();
   const [result, setResult] = useState<DeepDiveResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+
+  const s = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
     if (!visible) return;
@@ -38,8 +43,7 @@ export default function DeepDiveModal({ visible, onClose, answers, traits, recen
         setResult(data);
         track('deep_dive_loaded');
       })
-      .catch((e: unknown) => {
-        console.error('[DeepDiveModal] generateDeepDive threw:', e);
+      .catch((_: unknown) => {
         if (cancelled) return;
         setError(true);
         track('deep_dive_failed');
@@ -50,50 +54,58 @@ export default function DeepDiveModal({ visible, onClose, answers, traits, recen
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-          <Text style={styles.closeTxt}>✕</Text>
+      <View style={s.container}>
+        <TouchableOpacity
+          style={s.closeBtn}
+          onPress={onClose}
+          accessibilityLabel="Close"
+          accessibilityRole="button"
+        >
+          <Text style={s.closeTxt}>✕</Text>
         </TouchableOpacity>
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <Text style={styles.eyebrow}>JUST FOR YOU</Text>
-          <Text style={styles.heading}>A Deeper Look</Text>
+        <ScrollView contentContainerStyle={s.scroll}>
+          <Text style={s.eyebrow}>JUST FOR YOU</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={s.heading}>A Deeper Look</Text>
+            <AILabel />
+          </View>
 
           {loading && (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color="rgba(180,140,90,0.9)" />
-              <Text style={styles.loadingTxt}>Reflecting on your session…</Text>
+            <View style={s.loadingWrap}>
+              <ActivityIndicator color={colors['accent-gold']} />
+              <Text style={s.loadingTxt}>Reflecting on your session…</Text>
             </View>
           )}
 
           {error && (
-            <Text style={styles.error}>Could not load — check your connection and try again.</Text>
+            <Text style={s.error}>Could not load — check your connection and try again.</Text>
           )}
 
           {result && (
-            <View style={styles.content}>
-              <Text style={styles.quote}>"{result.quote}"</Text>
-              <View style={styles.divider} />
+            <View style={s.content}>
+              <Text style={s.quote}>"{result.quote}"</Text>
+              <View style={s.divider} />
 
               {SECTIONS.map(({ key, label }) => (
-                <View key={key} style={styles.section}>
-                  <Text style={styles.sectionLabel}>{label}</Text>
-                  <Text style={styles.sectionBody}>{result[key]}</Text>
+                <View key={key} style={s.section}>
+                  <Text style={s.sectionLabel}>{label}</Text>
+                  <Text style={s.sectionBody}>{result[key]}</Text>
                 </View>
               ))}
 
               {onVent && topic ? (
                 <TouchableOpacity
-                  style={styles.ventBtn}
+                  style={s.ventBtn}
                   onPress={() => { onVent(topic); onClose(); }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.ventText}>TALK ABOUT THIS →</Text>
+                  <Text style={s.ventText}>TALK ABOUT THIS →</Text>
                 </TouchableOpacity>
               ) : null}
 
-              <View style={styles.reflectionWrap}>
-                <Text style={styles.reflectionLabel}>CARRY THIS WITH YOU</Text>
-                <Text style={styles.reflectionText}>{result.reflection_prompt}</Text>
+              <View style={s.reflectionWrap}>
+                <Text style={s.reflectionLabel}>CARRY THIS WITH YOU</Text>
+                <Text style={s.reflectionText}>{result.reflection_prompt}</Text>
               </View>
             </View>
           )}
@@ -103,68 +115,72 @@ export default function DeepDiveModal({ visible, onClose, answers, traits, recen
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d0d', paddingTop: 20 },
-  closeBtn: { alignSelf: 'flex-end', padding: 20 },
-  closeTxt: { color: 'rgba(255,255,255,0.4)', fontSize: 18 },
-  scroll: { padding: 28, paddingTop: 8, paddingBottom: 60 },
-  eyebrow: { color: 'rgba(180,140,90,0.55)', fontSize: 10, letterSpacing: 3, marginBottom: 8 },
-  heading: { color: 'rgba(255,255,255,0.9)', fontSize: 26, fontWeight: '300' as const, letterSpacing: 0.5 },
-  loadingWrap: { alignItems: 'center', marginTop: 56, gap: 14 },
-  loadingTxt: { color: 'rgba(255,255,255,0.35)', fontSize: 13, letterSpacing: 0.5 },
-  error: { color: 'rgba(255,255,255,0.4)', fontSize: 14, lineHeight: 22, marginTop: 32 },
-  content: { marginTop: 28 },
-  quote: {
-    color: 'rgba(180,140,90,0.85)',
-    fontSize: 19,
-    fontStyle: 'italic',
-    lineHeight: 29,
-    fontWeight: '300' as const,
-    marginBottom: 28,
-  },
-  divider: { height: 1, backgroundColor: 'rgba(180,140,90,0.12)', marginBottom: 32 },
-  section: { marginBottom: 28 },
-  sectionLabel: {
-    color: 'rgba(180,140,90,0.6)',
-    fontSize: 10,
-    letterSpacing: 2.5,
-    marginBottom: 10,
-  },
-  sectionBody: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 16,
-    lineHeight: 26,
-    fontWeight: '300' as const,
-  },
-  reflectionWrap: {
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(180,140,90,0.12)',
-    paddingTop: 28,
-  },
-  reflectionLabel: {
-    color: 'rgba(180,140,90,0.6)',
-    fontSize: 10,
-    letterSpacing: 2.5,
-    marginBottom: 12,
-  },
-  reflectionText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 15,
-    lineHeight: 24,
-    fontStyle: 'italic',
-    fontWeight: '300' as const,
-  },
-  ventBtn: {
-    alignSelf: 'flex-start',
-    marginBottom: 32,
-    paddingVertical: 8,
-    paddingHorizontal: 0,
-  },
-  ventText: {
-    color: 'rgba(180,140,90,0.75)',
-    fontSize: 11,
-    letterSpacing: 2,
-    fontWeight: '500' as const,
-  },
-});
+function makeStyles(colors: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors['bg-primary'], paddingTop: 20 },
+    closeBtn: { alignSelf: 'flex-end', padding: 20 },
+    closeTxt: { color: colors['text-tertiary'], fontSize: 18 },
+    scroll: { padding: 28, paddingTop: 8, paddingBottom: 60 },
+    eyebrow: { color: colors['accent-gold'], fontSize: 12, letterSpacing: 3, marginBottom: 8, opacity: 0.7 },
+    heading: { color: colors['text-primary'], fontSize: 26, fontWeight: '300' as const, letterSpacing: 0.5 },
+    loadingWrap: { alignItems: 'center', marginTop: 56, gap: 14 },
+    loadingTxt: { color: colors['text-tertiary'], fontSize: 13, letterSpacing: 0.5 },
+    error: { color: colors['text-secondary'], fontSize: 14, lineHeight: 22, marginTop: 32 },
+    content: { marginTop: 28 },
+    quote: {
+      color: colors['accent-gold'],
+      fontSize: 19,
+      fontStyle: 'italic',
+      lineHeight: 29,
+      fontWeight: '300' as const,
+      marginBottom: 28,
+    },
+    divider: { height: 1, backgroundColor: colors['border-subtle'], marginBottom: 32 },
+    section: { marginBottom: 28 },
+    sectionLabel: {
+      color: colors['accent-gold'],
+      fontSize: 12,
+      letterSpacing: 2.5,
+      marginBottom: 10,
+      opacity: 0.7,
+    },
+    sectionBody: {
+      color: colors['text-primary'],
+      fontSize: 16,
+      lineHeight: 26,
+      fontWeight: '300' as const,
+    },
+    reflectionWrap: {
+      marginTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: colors['border-subtle'],
+      paddingTop: 28,
+    },
+    reflectionLabel: {
+      color: colors['accent-gold'],
+      fontSize: 12,
+      letterSpacing: 2.5,
+      marginBottom: 12,
+      opacity: 0.7,
+    },
+    reflectionText: {
+      color: colors['text-secondary'],
+      fontSize: 15,
+      lineHeight: 24,
+      fontStyle: 'italic',
+      fontWeight: '300' as const,
+    },
+    ventBtn: {
+      alignSelf: 'flex-start',
+      marginBottom: 32,
+      paddingVertical: 8,
+      paddingHorizontal: 0,
+    },
+    ventText: {
+      color: colors['accent-gold'],
+      fontSize: 12,
+      letterSpacing: 2,
+      fontWeight: '500' as const,
+    },
+  });
+}

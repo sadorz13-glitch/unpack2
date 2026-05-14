@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   ScrollView, Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { X, Mic, BookOpen, BarChart3, Star, Shield } from 'lucide-react-native';
 import type { PurchasesPackage } from 'react-native-purchases';
 import { getOfferings, purchasePackage, restorePurchases } from '../lib/iap';
 import { track } from '../lib/analytics';
-import { PRIVACY_POLICY_URL, TERMS_URL } from '../constants';
-import { colors, spacing, fontFamilies } from '../theme';
+import { TERMS_URL, PRIVACY_POLICY_URL } from '../constants';
+import { useTheme } from '../theme';
+import { PillButton } from '../components/ui/PillButton';
+import { IconButton } from '../components/ui/IconButton';
+import { PricingCard } from '../components/ui/PricingCard';
 
 type Props = {
   visible: boolean;
@@ -17,8 +21,18 @@ type Props = {
   onSubscribed: () => Promise<void>;
 };
 
+const BENEFITS = [
+  { Icon: Mic,       label: 'Unlimited voice sessions' },
+  { Icon: BookOpen,  label: 'Unlimited journal entries' },
+  { Icon: BarChart3, label: 'Deep insight analytics' },
+  { Icon: Star,      label: 'AI-powered synthesis' },
+  { Icon: Shield,    label: 'Priority support' },
+] as const;
+
 export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors, typography, spacing, radius } = useTheme();
+
   const [selectedPlan, setSelectedPlan] = useState<'annual' | 'monthly'>('annual');
   const [annualPkg, setAnnualPkg] = useState<PurchasesPackage | null>(null);
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
@@ -33,15 +47,22 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
     setSelectedPlan('annual');
     setError('');
     loadOfferings();
-  }, [visible]);
+    // REVIEW: loadOfferings defined in component, not in deps
+  }, [visible, source]);
 
   async function loadOfferings() {
     setLoading(true);
     try {
       const o = await getOfferings();
-      const packages: PurchasesPackage[] = o.current?.availablePackages ?? [];
-      setAnnualPkg(packages.find(p => p.packageType === 'ANNUAL') ?? null);
-      setMonthlyPkg(packages.find(p => p.packageType === 'MONTHLY') ?? null);
+      const packages: PurchasesPackage[] = o?.current?.availablePackages ?? [];
+      const annual = packages.find(p => p.packageType === 'ANNUAL') ?? null;
+      const monthly = packages.find(p => p.packageType === 'MONTHLY') ?? null;
+      setAnnualPkg(annual);
+      setMonthlyPkg(monthly);
+      if (__DEV__) {
+        console.log('ANNUAL PKG FULL:', JSON.stringify(annual?.product, null, 2));
+        console.log('MONTHLY PKG FULL:', JSON.stringify(monthly?.product, null, 2));
+      }
     } catch {
       setError('Could not load pricing. Check your connection and try again.');
     } finally {
@@ -54,6 +75,11 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
     return pkg?.product.priceString ?? (type === 'annual' ? '$34.99' : '$6.99');
   }
 
+  function getCtaLabel(): string {
+    if (selectedPlan === 'annual' && annualPkg) return 'START FREE TRIAL';
+    return 'CONTINUE';
+  }
+
   async function handleSubscribe() {
     const pkg = selectedPlan === 'annual' ? annualPkg : monthlyPkg;
     if (!pkg) { setError('Pricing unavailable — try refreshing.'); return; }
@@ -64,8 +90,8 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
       track('subscription_started', { plan: selectedPlan });
       await onSubscribed();
       onClose();
-    } catch (e: any) {
-      if (!e?.userCancelled) setError('Purchase failed. Please try again.');
+    } catch (e) {
+      if (!(e as { userCancelled?: boolean })?.userCancelled) setError('Purchase failed. Please try again.');
     } finally {
       setPurchasing(false);
     }
@@ -91,93 +117,217 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
     onClose();
   }
 
+  const annualPrice = getPrice('annual');
+  const monthlyPrice = getPrice('monthly');
+
+  const trialDays = (() => {
+    if (loading || !annualPkg) return null;
+    const intro = annualPkg.product.introPrice;
+    if (intro != null) {
+      return intro.periodUnit === 'DAY' ? intro.periodNumberOfUnits : 7;
+    }
+    const introAlt = (annualPkg.product as unknown as Record<string, unknown>).introductoryPrice;
+    if (introAlt != null) return 7;
+    // Trial is configured in App Store Connect — RC App Store credentials not yet set up
+    return 7;
+  })();
+  const trialBadgeText = trialDays ? `${trialDays} DAYS FREE` : null;
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={handleClose}>
       <ScrollView
-        style={styles.root}
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.lg, paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl }]}
+        style={[styles.root, { backgroundColor: colors['bg-primary'] }]}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: insets.top + spacing.sm,
+            paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.xl,
+            paddingHorizontal: 20,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
-          <Text style={styles.closeBtnText}>✕</Text>
-        </TouchableOpacity>
+        {/* Top bar: X close top-left only */}
+        <View style={styles.topBar}>
+          <IconButton
+            icon={X}
+            onPress={handleClose}
+            accessibilityLabel="Close paywall"
+          />
+        </View>
 
-        <Text style={styles.headline}>Unpack Premium</Text>
-        <Text style={styles.sub}>Go deeper. Understand yourself.</Text>
+        {/* Eyebrow label */}
+        <Text
+          style={[
+            typography.labelCaps,
+            { color: colors['text-tertiary'], textAlign: 'center', marginBottom: spacing.sm },
+          ]}
+        >
+          INFINITE JOURNAL
+        </Text>
 
-        <View style={styles.features}>
-          {[
-            'Unlimited daily sessions',
-            'Voice AI — ElevenLabs audio responses',
-            'Deep Dive analysis after every session',
-            'Weekly Wheel — track your patterns over time',
-            'Unlimited Vent messages',
-          ].map(f => (
-            <Text key={f} style={styles.feature}>· {f}</Text>
+        {/* h1 headline */}
+        <Text
+          style={[
+            typography.h1,
+            { color: colors['text-primary'], textAlign: 'center', marginBottom: spacing.md },
+          ]}
+        >
+          Unlock the Infinite
+        </Text>
+
+        {/* Subtitle */}
+        <Text
+          style={[
+            typography.body,
+            {
+              color: colors['text-secondary'],
+              textAlign: 'center',
+              marginBottom: spacing.xl,
+            },
+          ]}
+        >
+          Your stories deserve space. Unpack deeper, reflect further, and never lose a thought.
+        </Text>
+
+        {/* Benefits list */}
+        <View style={[styles.benefitsList, { marginBottom: spacing.xl }]}>
+          {BENEFITS.map(({ Icon, label }) => (
+            <View key={label} style={styles.benefitRow}>
+              <View
+                style={[
+                  styles.benefitIcon,
+                  {
+                    backgroundColor: colors['bg-surface'],
+                    borderRadius: radius.md,
+                  },
+                ]}
+              >
+                <Icon size={20} color={colors['text-primary']} strokeWidth={1.5} />
+              </View>
+              <Text style={[typography.body, { color: colors['text-primary'], flex: 1 }]}>
+                {label}
+              </Text>
+            </View>
           ))}
         </View>
 
-        <View style={styles.planRow}>
-          <TouchableOpacity
-            style={[styles.planCard, selectedPlan === 'annual' && styles.planCardSelected]}
+        {/* Pricing cards */}
+        <View style={[styles.pricingStack, { marginBottom: spacing.lg }]}>
+          <PricingCard
+            title="Annual"
+            price={annualPrice}
+            period="Billed annually"
+            selected={selectedPlan === 'annual'}
             onPress={() => setSelectedPlan('annual')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.bestValueBadge}>BEST VALUE</Text>
-            <Text style={styles.planLabel}>ANNUAL</Text>
-            <Text style={styles.planPrice}>{getPrice('annual')}</Text>
-            <Text style={styles.planTrial}>7-day free trial</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.planCard, selectedPlan === 'monthly' && styles.planCardSelected]}
+            savingsBadge="Save 58%"
+            trialBadge={trialBadgeText ?? undefined}
+            style={{ marginBottom: spacing.sm }}
+          />
+          <PricingCard
+            title="Monthly"
+            price={monthlyPrice}
+            period="Billed monthly"
+            selected={selectedPlan === 'monthly'}
             onPress={() => setSelectedPlan('monthly')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.planLabel}>MONTHLY</Text>
-            <Text style={styles.planPrice}>{getPrice('monthly')}</Text>
-            <Text style={styles.planNote}>per month</Text>
-          </TouchableOpacity>
+          />
         </View>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        {loading ? (
-          <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.xl }} />
-        ) : (
-          <TouchableOpacity
-            style={[styles.ctaBtn, (purchasing || restoring) && { opacity: 0.7 }]}
-            onPress={handleSubscribe}
-            disabled={purchasing || restoring}
-            activeOpacity={0.85}
+        {/* Error message */}
+        {error ? (
+          <Text
+            style={[
+              typography.caption,
+              { color: colors['status-danger'], textAlign: 'center', marginBottom: spacing.md },
+            ]}
           >
-            {purchasing
-              ? <ActivityIndicator color="#000" />
-              : <Text style={styles.ctaBtnText}>
-                  {selectedPlan === 'annual' ? 'Start 7-Day Free Trial' : 'Subscribe Now'}
-                </Text>
-            }
-          </TouchableOpacity>
+            {error}
+          </Text>
+        ) : null}
+
+        {/* CTA button */}
+        {loading ? (
+          <ActivityIndicator
+            color={colors['accent-primary']}
+            style={{ marginVertical: spacing.xl }}
+          />
+        ) : (
+          <>
+            <PillButton
+              label={purchasing ? '...' : getCtaLabel()}
+              onPress={handleSubscribe}
+              disabled={purchasing || restoring}
+              style={styles.ctaButton}
+            />
+            <Text
+              style={[
+                typography.caption,
+                { color: colors['text-secondary'], textAlign: 'center', marginTop: 8 },
+              ]}
+            >
+              {trialDays
+                ? `${trialDays}-day free trial, then ${annualPrice}. Cancel anytime.`
+                : `${annualPrice}. Cancel anytime.`}
+            </Text>
+          </>
         )}
 
-        <TouchableOpacity onPress={handleRestore} disabled={restoring || purchasing} style={styles.restoreBtn}>
-          <Text style={styles.restoreText}>{restoring ? 'Restoring...' : 'Restore Purchases'}</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.disclosure}>
-          {selectedPlan === 'annual'
-            ? `After your free trial, ${getPrice('annual')}/year will be charged. `
-            : `${getPrice('monthly')}/month will be charged. `}
-          Payment will be charged to your Apple ID account at confirmation of purchase. Your subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your App Store account settings after purchase.
+        {/* Footer */}
+        <Text
+          style={[
+            typography.caption,
+            {
+              color: colors['text-tertiary'],
+              textAlign: 'center',
+              marginTop: spacing.lg,
+              marginBottom: spacing.md,
+            },
+          ]}
+        >
+          Subscriptions automatically renew unless cancelled 24 hours before the end of the trial or period.
         </Text>
 
-        <View style={styles.links}>
-          <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
-            <Text style={styles.link}>Privacy Policy</Text>
+        <View style={styles.footerLinks}>
+          <TouchableOpacity
+            onPress={handleRestore}
+            disabled={restoring || purchasing}
+            accessibilityLabel="Restore purchases"
+          >
+            <Text
+              style={[
+                typography.caption,
+                { color: colors['text-tertiary'] },
+              ]}
+            >
+              {restoring ? 'Restoring...' : 'Restore Purchases'}
+            </Text>
           </TouchableOpacity>
-          <Text style={styles.linkSep}> · </Text>
-          <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
-            <Text style={styles.link}>Terms of Use</Text>
+
+          <Text style={[typography.caption, { color: colors['text-tertiary'], marginHorizontal: spacing.sm }]}>
+            |
+          </Text>
+
+          <TouchableOpacity
+            onPress={() => Linking.openURL(TERMS_URL)}
+            accessibilityLabel="Terms of Service"
+          >
+            <Text style={[typography.caption, { color: colors['text-tertiary'] }]}>
+              Terms
+            </Text>
+          </TouchableOpacity>
+
+          <Text style={[typography.caption, { color: colors['text-tertiary'], marginHorizontal: spacing.sm }]}>
+            |
+          </Text>
+
+          <TouchableOpacity
+            onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+            accessibilityLabel="Privacy Policy"
+            accessibilityRole="link"
+          >
+            <Text style={[typography.caption, { color: colors['text-tertiary'] }]}>
+              Privacy
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -186,71 +336,38 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: spacing.lg },
-  closeBtn: { alignSelf: 'flex-end', padding: spacing.sm, marginBottom: spacing.base },
-  closeBtnText: { color: colors.textGhost, fontSize: 18 },
-  headline: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 32,
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-  },
-  sub: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 16,
-    color: colors.textMuted,
-    fontStyle: 'italic',
-    marginBottom: spacing.xl,
-  },
-  features: { gap: spacing.base, marginBottom: spacing.xl },
-  feature: { color: colors.textSecondary, fontSize: 14, lineHeight: 22 },
-  planRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.lg },
-  planCard: {
+  root: {
     flex: 1,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
+  },
+  content: {
+    flexGrow: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    minHeight: 120,
+    marginBottom: 8,
+  },
+  benefitsList: {
+    gap: 12,
+  },
+  benefitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  benefitIcon: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
   },
-  planCardSelected: {
-    borderColor: colors.accent,
-    backgroundColor: 'rgba(180,140,90,0.1)',
+  pricingStack: {},
+  ctaButton: {
+    width: '100%',
   },
-  bestValueBadge: { color: colors.accent, fontSize: 8, letterSpacing: 2, marginBottom: 4 },
-  planLabel: { color: colors.textSecondary, fontSize: 9, letterSpacing: 3 },
-  planPrice: {
-    fontFamily: fontFamilies.serifItalic,
-    fontSize: 24,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  planTrial: { color: colors.accent, fontSize: 11, marginTop: 2 },
-  planNote: { color: colors.textGhost, fontSize: 11 },
-  errorText: { color: '#e05252', fontSize: 12, marginBottom: spacing.base, textAlign: 'center' },
-  ctaBtn: {
-    backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: spacing.lg,
+  footerLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: spacing.base,
   },
-  ctaBtnText: { color: '#000', fontSize: 15, fontWeight: '700', letterSpacing: 0.5 },
-  restoreBtn: { alignItems: 'center', paddingVertical: spacing.base, marginBottom: spacing.xl },
-  restoreText: { color: colors.textGhost, fontSize: 12, letterSpacing: 1 },
-  disclosure: {
-    color: colors.textGhost,
-    fontSize: 11,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  links: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  link: { color: colors.textMuted, fontSize: 12, textDecorationLine: 'underline' },
-  linkSep: { color: colors.textGhost, fontSize: 12, marginHorizontal: spacing.sm },
 });

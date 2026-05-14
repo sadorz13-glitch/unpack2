@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "unpack2",
+    "name": "Unpack",
     "slug": "unpack2",
     "version": "1.0.0",
     "scheme": "unpack",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -47,6 +47,9 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "deploymentTarget": "15.1"
+          },
           "android": {
             "enableJetifier": true
           }
@@ -66,7 +69,8 @@
           "organization": "valecrest",
           "project": "react-native"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
