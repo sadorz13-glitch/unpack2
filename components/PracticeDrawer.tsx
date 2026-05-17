@@ -191,6 +191,7 @@ export function PracticeDrawer({
           (authUser?.email ? authUser.email.split('@')[0] : '') ||
           'Friend';
         setProfile({ name: resolvedName, memberSince });
+        if (__DEV__) console.log('[PracticeDrawer] resolvedName:', resolvedName, '| profiles.name:', row?.name, '| meta.name:', meta?.name, '| meta.full_name:', meta?.full_name);
       } catch {
         // TODO: add error handling here
       }

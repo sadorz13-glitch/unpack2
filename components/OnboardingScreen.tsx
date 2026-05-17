@@ -271,7 +271,7 @@ export function OnboardingScreen({ onComplete }: Props) {
 
         <Text
           style={{
-            fontSize: 12,
+            fontSize: 11,
             fontStyle: 'italic',
             color: colors['text-tertiary'],
             lineHeight: 18,
@@ -286,7 +286,7 @@ export function OnboardingScreen({ onComplete }: Props) {
             accessibilityRole="link"
             accessibilityLabel="Open Privacy Policy"
           >
-            <Text style={{ color: colors['accent-primary'], fontSize: 12, fontStyle: 'italic' }}>
+            <Text style={{ color: colors['accent-primary'], fontSize: 11, fontStyle: 'italic' }}>
               Learn more in our Privacy Policy.
             </Text>
           </TouchableOpacity>
@@ -304,7 +304,7 @@ export function OnboardingScreen({ onComplete }: Props) {
         <Pressable
           onPress={async () => {
             const trimmed = name.trim();
-            try { await saveProfile(trimmed, ''); } catch { /* best-effort */ }
+            try { await saveProfile(trimmed, ''); } catch { /* profile save failed — proceed anyway, onboarding flag ensures no loop */ }
             onComplete({ name: trimmed, dob: '' });
           }}
           accessibilityLabel="Skip"

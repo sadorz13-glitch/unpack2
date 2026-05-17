@@ -272,8 +272,22 @@ export default function App() {
             await supabase.from('profiles').upsert({ user_id: uid, name: 'Dev User', dob: '1995-06-15' });
             setHoroscopeContext(buildHoroscopeContext('1995-06-15'));
           } else {
-            setNeedsOnboarding(true);
-            if (event === 'SIGNED_IN') track('sign_up');
+            const onboardingDone = await AsyncStorage.getItem(`onboardingComplete_${uid}`);
+            if (onboardingDone) {
+              // Onboarding was completed but profile wasn't persisted to DB (e.g. network error on DOB skip).
+              // Proceed to main app without looping onboarding.
+              if (event === 'SIGNED_IN') {
+                await AsyncStorage.setItem(STORAGE_KEY_HAS_SEEN_WELCOME, '1');
+                setShowWelcome(false);
+                track('login');
+              } else {
+                const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
+                if (!seen) setShowWelcome(true);
+              }
+            } else {
+              setNeedsOnboarding(true);
+              if (event === 'SIGNED_IN') track('sign_up');
+            }
           }
         } else {
           setHoroscopeContext(buildHoroscopeContext(profile.dob));
@@ -480,8 +494,12 @@ export default function App() {
               <OnboardingScreen
                 onComplete={({ name, dob }: { name: string; dob: string }) => {
                   track('onboarding_completed');
+                  if (userId) AsyncStorage.setItem(`onboardingComplete_${userId}`, '1');
                   setHoroscopeContext(buildHoroscopeContext(dob));
                   setNeedsOnboarding(false);
+                  if (__DEV__) console.log('[App onComplete] profile saved, now querying to verify...');
+                  supabase.from('profiles').select('name, dob').eq('user_id', userId ?? '').maybeSingle()
+                    .then(({ data }) => { if (__DEV__) console.log('[App onComplete] DB profile after onboarding:', data); });
                   setShowWelcome(true);
                 }}
               />
@@ -790,17 +808,16 @@ export default function App() {
             </>
           )}
 
-        {showCrisis && (
-          <View style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            zIndex: 9999,
-            backgroundColor: colors['bg-primary'],
-          }}>
-            <SafeAreaProvider>
-              <CrisisResourcesScreen onClose={() => setShowCrisis(false)} />
-            </SafeAreaProvider>
-          </View>
-        )}
+        <Modal
+          visible={showCrisis}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowCrisis(false)}
+        >
+          <SafeAreaProvider>
+            <CrisisResourcesScreen onClose={() => setShowCrisis(false)} />
+          </SafeAreaProvider>
+        </Modal>
         </SafeAreaProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

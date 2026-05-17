@@ -75,7 +75,10 @@ export function buildHoroscopeContext(dob: string | null | undefined): string {
 
 export async function saveProfile(name: string, dob = ''): Promise<void> {
   if (!_userId) throw new Error('Not authenticated');
-  await supabase.from('profiles').upsert({ user_id: _userId, name, dob });
+  if (__DEV__) console.log('[saveProfile] saving:', { name, dob, userId: _userId });
+  const { error } = await supabase.from('profiles').upsert({ user_id: _userId, name, dob });
+  if (__DEV__) console.log('[saveProfile] result error:', error);
+  if (error) throw error;
 }
 
 export async function deleteAccount(): Promise<void> {

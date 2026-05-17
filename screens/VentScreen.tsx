@@ -2,10 +2,10 @@ import React, { useRef, useEffect, useState, type Dispatch, type SetStateAction 
 import { type SharedValue } from 'react-native-reanimated';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Animated, Keyboard,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Animated, Keyboard, Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 import { BlurCard } from '../components/BlurCard';
 import { IconButton } from '../components/ui/IconButton';
@@ -20,9 +20,9 @@ import { PaywallScreen } from './PaywallScreen';
 import { MicButton } from '../components/ui/MicButton';
 import { WaveformBar } from '../components/ui/WaveformBar';
 import { PillButton } from '../components/ui/PillButton';
-import { OutlinedPillButton } from '../components/ui/OutlinedPillButton';
 import { Card } from '../components/ui/Card';
 import { AILabel } from '../components/ui';
+import { CrisisResourcesScreen } from './CrisisResourcesScreen';
 
 const VENT_HEADERS = [
   "Say it out loud",
@@ -75,6 +75,7 @@ type Props = {
   onVentTopicUsed?: () => void;
   forceStopCount?: number;
   onClose?: () => void;
+  onOpenCrisisResources?: () => void;
 };
 
 export function VentScreen({
@@ -93,6 +94,7 @@ export function VentScreen({
   onVentTopicUsed,
   forceStopCount = 0,
   onClose,
+  onOpenCrisisResources,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -107,6 +109,7 @@ export function VentScreen({
   const [flaggedTopics, setFlaggedTopics] = useState<string[]>([]);
   const [pinnedTherapyTopic, setPinnedTherapyTopic] = useState('');
   const [showPaywall, setShowPaywall] = useState(false);
+  const [showCrisis, setShowCrisis] = useState(false);
   const [isMicMode, setIsMicMode] = useState(false);
   const [forceStopMsg, setForceStopMsg] = useState(false);
   useEffect(() => {
@@ -340,15 +343,6 @@ export function VentScreen({
     }
   }
 
-  function handlePauseSession() {
-    exitMicMode();
-    setInputMode('voice');
-  }
-
-  function handleSaveReflection() {
-    if (isConnected) sendTherapyMessage();
-  }
-
   // ─── Locked: no vent access ─────────────────────────────────────────────────
   if (!canUseVent && !sessionStarted) {
     return (
@@ -447,6 +441,17 @@ export function VentScreen({
         <Text style={[typography.h1, { color: colors['text-primary'], textAlign: 'center', marginTop: spacing.sm }]}>
           {header}
         </Text>
+        {!sessionStarted && (
+          <View style={styles.disclaimer}>
+            <Text style={{ fontSize: 11, color: colors['text-secondary'], textAlign: 'center', lineHeight: 18 }}>
+              {'A journaling companion, not a substitute for professional mental health care. If you\'re in crisis, '}
+              <Text style={{ textDecorationLine: 'underline' }} onPress={() => setShowCrisis(true)}>
+                reach out
+              </Text>
+              {'.'}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Chat messages (scrollable) — only shown when session is active */}
@@ -590,33 +595,22 @@ export function VentScreen({
         </View>
       )}
 
-      {/* Bottom row */}
-      <View style={[
-        styles.bottomRow,
-        {
-          paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.md,
-          paddingHorizontal: spacing['margin-screen'],
-        },
-      ]}>
-        <OutlinedPillButton
-          label="PAUSE SESSION"
-          onPress={handlePauseSession}
-          style={styles.bottomBtn}
-        />
-        <PillButton
-          label="SAVE REFLECTION"
-          onPress={handleSaveReflection}
-          disabled={!isConnected || !therapyInput.trim()}
-          style={styles.bottomBtn}
-        />
-      </View>
-
       <PaywallScreen
         visible={showPaywall}
         source="vent"
         onClose={() => setShowPaywall(false)}
         onSubscribed={onPremiumStatusChanged ?? (() => Promise.resolve())}
       />
+      <Modal
+        visible={showCrisis}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowCrisis(false)}
+      >
+        <SafeAreaProvider>
+          <CrisisResourcesScreen onClose={() => setShowCrisis(false)} />
+        </SafeAreaProvider>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -635,6 +629,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.sm,
+  },
+  disclaimer: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
   },
   closeBtn: {
     width: 44,
@@ -733,13 +733,5 @@ const styles = StyleSheet.create({
   freeCounterCard: {
     minHeight: 0,
     padding: spacing.md,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    alignItems: 'center',
-  },
-  bottomBtn: {
-    flex: 1,
   },
 });

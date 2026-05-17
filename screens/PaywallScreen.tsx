@@ -76,7 +76,7 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
   }
 
   function getCtaLabel(): string {
-    if (selectedPlan === 'annual' && annualPkg) return 'START FREE TRIAL';
+    if (selectedPlan === 'annual' && annualPkg && trialDays) return 'START FREE TRIAL';
     return 'CONTINUE';
   }
 
@@ -128,8 +128,7 @@ export function PaywallScreen({ visible, source, onClose, onSubscribed }: Props)
     }
     const introAlt = (annualPkg.product as unknown as Record<string, unknown>).introductoryPrice;
     if (introAlt != null) return 7;
-    // Trial is configured in App Store Connect — RC App Store credentials not yet set up
-    return 7;
+    return null;
   })();
   const trialBadgeText = trialDays ? `${trialDays} DAYS FREE` : null;
 
