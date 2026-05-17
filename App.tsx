@@ -120,12 +120,12 @@ export default function App() {
 
   // ── Hooks ────────────────────────────────────────────────────────────────
   const {
-    isRecording, isTranscribing, forceStopCount, micPulseAnim, meteringLevelAnim,
+    isRecording, isTranscribing, forceStopCount, micPulseAnim, meteringLevelAnim, meteringSV,
     recordingRef, recordingSetterRef, startVoiceRecording: _startVoiceRecording,
     stopVoiceRecording: _stopVoiceRecording,
   } = useVoice();
 
-  const { ttsEnabled, stopTTS, speakAndWait, isSpeakingRef: ttsIsSpeakingRef } = useTTS();
+  const { ttsEnabled, stopTTS, speakAndWait, isSpeaking, isSpeakingRef: ttsIsSpeakingRef, ttsMeteringSV } = useTTS();
 
   const {
     streakDisplayValue, showFireEmoji, setShowStreakCelebration,
@@ -675,6 +675,9 @@ export default function App() {
               isTranscribing={isTranscribing}
               micPulseAnim={micPulseAnim}
               meteringLevelAnim={meteringLevelAnim}
+              meteringSV={meteringSV}
+              isTtsSpeaking={isSpeaking}
+              ttsMeteringSV={ttsMeteringSV}
               ttsEnabled={ttsEnabled}
               isConnected={isConnected}
               onSessionComplete={({ answers: _ans, insight: ins, insightShort: insShort, traits: tr, topic: tp, streak, total }) => {
@@ -744,6 +747,9 @@ export default function App() {
               isTranscribing={isTranscribing}
               micPulseAnim={micPulseAnim}
               meteringLevelAnim={meteringLevelAnim}
+              meteringSV={meteringSV}
+              isTtsSpeaking={isSpeaking}
+              ttsMeteringSV={ttsMeteringSV}
               onStartVoiceRecording={startVoiceRecording}
               onStopVoiceRecording={stopVoiceRecording}
               therapyVoiceModeRef={therapyVoiceModeRef}

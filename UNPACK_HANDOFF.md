@@ -512,6 +512,8 @@ components/
 - ✅ EAS build #11 succeeded — New Architecture + react-native-reanimated 4.1.7 + react-native-worklets 0.5.1 confirmed working on device (2026-05-12)
 - ✅ EAS Build #11 — 2026-05-12 — reanimated 4 migration (New Architecture enabled), resolved persistent folly/coro build failure; tested on device
 - ✅ Pre-submission blockers batch resolved — 2026-05-13 — crisis resources screen (6 countries, dialable rows), DOB/zodiac onboarding disclosure, AI-generated content labels across 5 surfaces (AILabel component), paywall trial conditional + disclosure text + Privacy link, WCAG AA fix on tab labels, status bar fix on cream backgrounds, official Google Sign-In button, voice audio persistence audit passed, DEV WIPE audit passed
+- ✅ WaveformBar reactivity fixed — 2026-05-15 — VentScreen and SessionScreen now pass `meteringLevelAnim` directly to `<WaveformBar>`; removed the React-state double-bridge (`waveAmplitude` + `addListener`) that was dropping metering samples under JS-thread load. Also fixed SessionScreen hardcoded `amplitude={0}`.
+- ✅ TypeScript baseline cleared — 2026-05-15 — 3 pre-existing `defaultToSpeakerphone` errors resolved; `npx tsc --noEmit` now exits clean (0 errors).
 
 ---
 
@@ -527,13 +529,9 @@ components/
 
 ## Known TypeScript Baseline 🤖
 
-The codebase has 3 pre-existing TypeScript errors that are intentionally left unfixed:
+The codebase has **0 TypeScript errors** (`npx tsc --noEmit` exits clean).
 
-- `hooks/useTTS.ts:41` — `defaultToSpeakerphone` does not exist in `Partial<AudioMode>`
-- `hooks/useVoice.ts:191` — same error
-- `hooks/useVoice.ts:228` — same error
-
-These stem from an expo-av API change. The voice/TTS logic works at runtime but the type signature is outdated. Fix is queued in V1.1 roadmap item 12. **Agents working on the codebase should ensure their changes keep error count at exactly 3 (these specific errors only). New errors = stop and report.**
+The 3 previously-noted `defaultToSpeakerphone` errors in `hooks/useTTS.ts:41` and `hooks/useVoice.ts:191,228` were resolved on 2026-05-15: the property was removed from both files as it no longer exists in expo-av's `Partial<AudioMode>` type. **Agents working on the codebase should ensure their changes introduce no new errors.**
 
 ---
 
@@ -632,7 +630,7 @@ These must be resolved before submitting to App Store Connect. Discovered via au
 9. WritingScreen modal close button — currently no in-app close, must close from gesture only
 10. Hardcoded hex colors in InsightShareCard, PersonalityBreakdownModal, Radar — migrate to theme tokens
 11. Dark mode QA pass — verify every screen renders correctly when `theme_mode` is `'dark'`
-12. Fix pre-existing `defaultToSpeakerphone` TypeScript errors in `useTTS.ts` + `useVoice.ts` (expo-av API change — unrelated to redesign)
+12. ✅ Fix pre-existing `defaultToSpeakerphone` TypeScript errors in `useTTS.ts` + `useVoice.ts` — resolved 2026-05-15 (property removed; expo-av `AudioMode` no longer includes it)
 
 ### Now — unblocked code work
 1. ✅ RLS on all tables — done 2026-04-30

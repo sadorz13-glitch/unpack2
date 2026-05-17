@@ -1,77 +1,70 @@
 import React, { useEffect } from 'react';
 import { View, ViewStyle, StyleSheet, AccessibilityInfo, Animated } from 'react-native';
 import Reanimated, {
+  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
-  useDerivedValue,
-  withTiming,
-  withRepeat,
-  cancelAnimation,
   Easing,
   runOnUI,
+  withRepeat,
+  withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
 import { useTheme } from '../../theme';
 
-const BAR_COUNT = 32;
-const BAR_WIDTH = 4;
-const BAR_GAP = 4;
-const BAR_MIN = 8;
-const BAR_MAX = 60;
+const BAR_COUNT = 41;
+const BAR_WIDTH = 3;
+const BAR_GAP = 3;
+const BAR_MIN = 7;
+const BAR_MAX = 58;
 const CONTAINER_HEIGHT = 80;
+const LOOP_RADIANS = Math.PI * 2;
 
-// meteringLevelAnim from useVoice ranges 1.0 (silent) → ~3.5 (loud).
-// Map it to a 0–1 normalized amplitude SharedValue.
+// meteringLevelAnim from useVoice ranges 1.0 (silent) to ~3.5 (loud).
+// Map it to a 0-1 normalized amplitude SharedValue.
 const METERING_MIN = 1.0;
 const METERING_MAX = 3.5;
 
 interface BarProps {
   index: number;
-  amplitudeSV: SharedValue<number>; // 0–1 normalized
-  active: SharedValue<boolean>;
+  amplitudeSV: SharedValue<number>;
+  activeSV: SharedValue<boolean>;
+  reduceMotionSV: SharedValue<boolean>;
+  phaseSV: SharedValue<number>;
+  baseColor: string;
   accentColor: string;
-  fullRadius: number;
-  reduceMotion: boolean;
 }
 
-function Bar({ index, amplitudeSV, active, accentColor, fullRadius, reduceMotion }: BarProps) {
-  const height = useSharedValue(BAR_MIN);
+function Bar({ index, amplitudeSV, activeSV, reduceMotionSV, phaseSV, baseColor, accentColor }: BarProps) {
+  const position = index / (BAR_COUNT - 1);
+  const centerDistance = Math.abs(position - 0.5) * 2;
+  const envelope = Math.sin(position * Math.PI) ** 0.62;
+  const phaseOffset = index * 1.731 + (index % 5) * 0.619;
+  const speed = 0.72 + (index % 7) * 0.065;
+  const idleHeight = BAR_MIN + envelope * 7 + (index % 3) * 1.5;
+  const floor = BAR_MIN + (1 - centerDistance) * 3;
 
-  // Idle target height for this bar — sine-wave stagger based on index.
-  const idleMid = (BAR_MIN + BAR_MAX) / 2;
-  const idleRange = (BAR_MAX - BAR_MIN) * 0.2;
-  const offset = (index / BAR_COUNT) * Math.PI * 2;
-  const idleTarget =
-    idleMid - idleRange + Math.sin(offset) * idleRange + idleRange * (index % 2 === 0 ? 1 : -1);
+  const animStyle = useAnimatedStyle(() => {
+    const clamped = Math.max(0, Math.min(1, amplitudeSV.value));
+    const phase = phaseSV.value * speed + phaseOffset;
+    const shimmerA = (Math.sin(phase) + 1) / 2;
+    const shimmerB = (Math.sin(phase * 0.61 + index * 0.43) + 1) / 2;
+    const texture = 0.42 + shimmerA * 0.36 + shimmerB * 0.22;
+    const energy = Math.min(1, clamped * (0.42 + envelope * 0.88) * texture);
+    const target = reduceMotionSV.value
+      ? BAR_MIN
+      : activeSV.value
+        ? floor + (BAR_MAX - floor) * energy
+        : idleHeight;
 
-  // Derive the desired height on the UI thread — no JS-thread useEffect needed.
-  useDerivedValue(() => {
-    if (reduceMotion) {
-      height.value = withTiming(BAR_MIN, { duration: 200 });
-      return;
-    }
-
-    if (!active.value) {
-      // Idle: animate to staggered sine target, repeat.
-      // Only restart the repeat animation when transitioning to idle
-      // (cancelAnimation + withRepeat handles idempotency via Reanimated 4).
-      height.value = withRepeat(
-        withTiming(idleTarget, { duration: 1500, easing: Easing.inOut(Easing.sin) }),
-        -1,
-        true,
-      );
-    } else {
-      // Active: snap to amplitude-driven height.
-      const clamped = Math.max(0, Math.min(1, amplitudeSV.value));
-      const target = BAR_MIN + (BAR_MAX - BAR_MIN) * clamped;
-      cancelAnimation(height);
-      height.value = withTiming(target, { duration: 50, easing: Easing.linear });
-    }
+    return {
+      height: withTiming(target, {
+        duration: activeSV.value ? 82 : 260,
+        easing: Easing.out(Easing.quad),
+      }),
+      backgroundColor: interpolateColor(clamped, [0, 1], [baseColor, accentColor]),
+    };
   });
-
-  const animStyle = useAnimatedStyle(() => ({
-    height: height.value,
-  }));
 
   return (
     <Reanimated.View
@@ -79,8 +72,6 @@ function Bar({ index, amplitudeSV, active, accentColor, fullRadius, reduceMotion
         animStyle,
         styles.bar,
         {
-          backgroundColor: accentColor,
-          borderRadius: fullRadius,
           width: BAR_WIDTH,
         },
       ]}
@@ -89,27 +80,25 @@ function Bar({ index, amplitudeSV, active, accentColor, fullRadius, reduceMotion
 }
 
 interface Props {
-  /** Legacy number amplitude (0–1). Ignored when meteringLevelAnim is provided. */
+  /** Legacy number amplitude (0-1). Ignored when meteringSV or meteringLevelAnim is provided. */
   amplitude?: number;
   active?: boolean;
   style?: ViewStyle;
-  /**
-   * Pass the Animated.Value from useVoice's meteringLevelAnim for live reactivity.
-   * Ranges 1.0 (silent) → ~3.5 (loud). WaveformBar bridges it internally to a
-   * Reanimated SharedValue so the animation runs fully on the UI thread.
-   */
+  /** Preferred: Reanimated SharedValue (0-1) from useVoice/useTTS. Bypasses Animated.Value bridge. */
+  meteringSV?: SharedValue<number>;
+  /** Legacy: Animated.Value from useVoice. Used only when meteringSV is absent. */
   meteringLevelAnim?: Animated.Value;
 }
 
-export function WaveformBar({ amplitude = 0, active = false, style, meteringLevelAnim }: Props) {
-  const { colors, radius } = useTheme();
-  const [reduceMotion, setReduceMotion] = React.useState(false);
+export function WaveformBar({ amplitude = 0, active = false, style, meteringSV, meteringLevelAnim }: Props) {
+  const { colors } = useTheme();
 
-  // Shared values visible to Bar components — mutated on UI thread.
-  const amplitudeSV = useSharedValue(0);
+  const fallbackAmplitudeSV = useSharedValue(amplitude);
   const activeSV = useSharedValue(active);
+  const reduceMotionSV = useSharedValue(false);
+  const phaseSV = useSharedValue(0);
+  const amplitudeSourceSV = meteringSV ?? fallbackAmplitudeSV;
 
-  // Keep activeSV in sync with the active prop.
   useEffect(() => {
     runOnUI(() => {
       'worklet';
@@ -117,31 +106,42 @@ export function WaveformBar({ amplitude = 0, active = false, style, meteringLeve
     })();
   }, [active]);
 
-  // Bridge meteringLevelAnim (Animated.Value) → amplitudeSV (Reanimated SharedValue).
   useEffect(() => {
+    if (meteringSV) return;
     if (meteringLevelAnim) {
       const id = meteringLevelAnim.addListener(({ value }) => {
-        const normalized =
-          (value - METERING_MIN) / (METERING_MAX - METERING_MIN);
+        const normalized = (value - METERING_MIN) / (METERING_MAX - METERING_MIN);
         runOnUI(() => {
           'worklet';
-          amplitudeSV.value = Math.max(0, Math.min(1, normalized));
+          fallbackAmplitudeSV.value = Math.max(0, Math.min(1, normalized));
         })();
       });
       return () => meteringLevelAnim.removeListener(id);
-    } else {
-      // Fallback: sync plain amplitude prop via runOnUI.
-      runOnUI(() => {
-        'worklet';
-        amplitudeSV.value = Math.max(0, Math.min(1, amplitude));
-      })();
     }
-  }, [meteringLevelAnim, amplitude]);
+
+    runOnUI(() => {
+      'worklet';
+      fallbackAmplitudeSV.value = Math.max(0, Math.min(1, amplitude));
+    })();
+  }, [meteringSV, meteringLevelAnim, amplitude]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
-      .then(enabled => setReduceMotion(enabled))
+      .then(enabled => {
+        runOnUI(() => {
+          'worklet';
+          reduceMotionSV.value = enabled;
+        })();
+      })
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    phaseSV.value = withRepeat(
+      withTiming(LOOP_RADIANS, { duration: 1800, easing: Easing.linear }),
+      -1,
+      false,
+    );
   }, []);
 
   return (
@@ -150,11 +150,12 @@ export function WaveformBar({ amplitude = 0, active = false, style, meteringLeve
         <Bar
           key={i}
           index={i}
-          amplitudeSV={amplitudeSV}
-          active={activeSV}
-          accentColor={colors['accent-primary']}
-          fullRadius={radius.full}
-          reduceMotion={reduceMotion}
+          amplitudeSV={amplitudeSourceSV}
+          activeSV={activeSV}
+          reduceMotionSV={reduceMotionSV}
+          phaseSV={phaseSV}
+          baseColor={colors['text-tertiary']}
+          accentColor={colors['accent-gold']}
         />
       ))}
     </View>
@@ -172,5 +173,6 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: BAR_WIDTH,
+    borderRadius: 1,
   },
 });

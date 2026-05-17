@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { Animated } from 'react-native';
+import { useSharedValue } from 'react-native-reanimated';
 import { Audio } from 'expo-av';
 import * as Sentry from '@sentry/react-native';
 import { SUPABASE_URL, VAD_HARD_TIMEOUT_MS } from '../constants';
@@ -79,7 +80,9 @@ function createVAD(isTtsSpeaking?: () => boolean) {
         if (level < silenceThreshold) {
           silenceBreakCount = 0;
           if (silenceStartTime === null) { silenceStartTime = now; }
-          else if (now - silenceStartTime >= 1000) {
+          // 2750ms ≈ 28 samples at the 100ms update interval. Gives natural pauses
+          // room to breathe before VAD cuts the recording.
+          else if (now - silenceStartTime >= 2750) {
             const speechDuration = silenceStartTime - (speakingStartedAt ?? silenceStartTime);
             if (speechDuration >= 500) {
               isUserSpeaking = false;
@@ -112,6 +115,9 @@ export function useVoice() {
   const vadRef = useRef<ReturnType<typeof createVAD> | null>(null);
   const micPulseAnim = useRef(new Animated.Value(1)).current;
   const meteringLevelAnim = useRef(new Animated.Value(1)).current;
+  // Reanimated SharedValue — updated directly from JS; bypasses Animated.Value bridge.
+  // Normalized 0 (silent) → 1 (loud). Preferred by WaveformBar over meteringLevelAnim.
+  const meteringSV = useSharedValue(0);
   const onTranscribedRef = useRef<((text: string) => void) | null>(null);
   const hardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -156,17 +162,25 @@ export function useVoice() {
       }, VAD_HARD_TIMEOUT_MS);
 
       recording.setProgressUpdateInterval(100);
+      let _meteringSampleCount = 0;
       recording.setOnRecordingStatusUpdate((status: { isRecording: boolean; metering?: number }) => {
         if (!status.isRecording) return;
         const level = status.metering ?? -160;
+
+        _meteringSampleCount++;
+        if (__DEV__ && _meteringSampleCount % 10 === 0) {
+          console.log('[useVoice] metering sample', _meteringSampleCount, 'dB:', level.toFixed(1)); // __DEV__ TODO: remove before ship
+        }
 
         const clamped = Math.max(-60, Math.min(-5, level));
         const targetScale = 1 + ((clamped + 60) / 55) * 2.5;
         Animated.timing(meteringLevelAnim, {
           toValue: targetScale,
           duration: 60,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }).start();
+        // Direct SharedValue write — no Animated.Value bridge needed. WaveformBar reads this.
+        meteringSV.value = (clamped + 60) / 55; // 0 (silent) → 1 (loud)
 
         vad.process(level, () => { if (recordingSetterRef.current) stopVoiceRecording(recordingSetterRef.current); });
       });
@@ -183,12 +197,12 @@ export function useVoice() {
       rec.setOnRecordingStatusUpdate(null);
       setIsRecording(false);
       setIsTranscribing(true);
-      Animated.timing(meteringLevelAnim, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+      Animated.timing(meteringLevelAnim, { toValue: 1, duration: 150, useNativeDriver: false }).start();
+      meteringSV.value = 0;
       await rec.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        defaultToSpeakerphone: true,
       });
       const uri = rec.getURI();
       if (!uri) { setIsTranscribing(false); return; }
@@ -225,7 +239,6 @@ export function useVoice() {
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        defaultToSpeakerphone: true,
       }).catch(() => {});
     }
   }
@@ -238,6 +251,7 @@ export function useVoice() {
     setInputMode,
     micPulseAnim,
     meteringLevelAnim,
+    meteringSV,
     recordingRef,
     recordingSetterRef,
     startVoiceRecording,

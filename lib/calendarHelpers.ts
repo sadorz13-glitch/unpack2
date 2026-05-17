@@ -86,6 +86,13 @@ export async function loadCalendarMonth(year: number, month: number, userId?: st
 
     const revivalSet = new Set((revivalData || []).map((r: CalendarRevivalRow) => r.revived_date));
 
+    // Show an activity dot for revived days that have no natural session or note entry.
+    revivalSet.forEach((dateKey) => {
+      if (!map[dateKey]) {
+        map[dateKey] = { id: null, insight: null, topic: null, hasNote: true };
+      }
+    });
+
     if (activityDates.size > 0) {
       const activityDatesArr = Array.from(activityDates).sort();
       const sevenDaysAgo = new Date();

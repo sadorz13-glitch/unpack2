@@ -96,7 +96,18 @@ export default function DeepDiveModal({ visible, onClose, answers, traits, recen
               {onVent && topic ? (
                 <TouchableOpacity
                   style={s.ventBtn}
-                  onPress={() => { onVent(topic); onClose(); }}
+                  onPress={() => {
+                    // Fix: iOS cannot render two <Modal> components simultaneously.
+                    // Closing DeepDive first and deferring onVent gives the native layer
+                    // ~80ms to dismiss this modal before the Vent modal is presented.
+                    // Same pattern used for the Crisis Resources double-modal fix.
+                    if (__DEV__) console.log('[DeepDiveModal] "Talk about this" pressed — closing DeepDive modal'); // __DEV__ TODO: remove before ship
+                    onClose();
+                    setTimeout(() => {
+                      if (__DEV__) console.log('[DeepDiveModal] setTimeout fired — calling onVent with topic:', topic); // __DEV__ TODO: remove before ship
+                      onVent(topic);
+                    }, 80);
+                  }}
                   activeOpacity={0.7}
                 >
                   <Text style={s.ventText}>TALK ABOUT THIS →</Text>

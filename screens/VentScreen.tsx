@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { type SharedValue } from 'react-native-reanimated';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Animated, Keyboard,
@@ -56,6 +57,9 @@ type Props = {
   isTranscribing: boolean;
   micPulseAnim: Animated.Value;
   meteringLevelAnim: Animated.Value;
+  meteringSV: SharedValue<number>;
+  isTtsSpeaking: boolean;
+  ttsMeteringSV: SharedValue<number>;
   onStartVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
   onStopVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
   therapyVoiceModeRef: React.MutableRefObject<boolean>;
@@ -76,7 +80,7 @@ type Props = {
 export function VentScreen({
   horoscopeContext, ttsEnabled, stopTTS, speakAndWait,
   sessionCount, sessionCountLoaded, therapyPreview, therapyResetTick,
-  isRecording, isTranscribing, micPulseAnim, meteringLevelAnim,
+  isRecording, isTranscribing, micPulseAnim, meteringLevelAnim, meteringSV, isTtsSpeaking, ttsMeteringSV,
   onStartVoiceRecording, onStopVoiceRecording,
   therapyVoiceModeRef, therapyVoiceSubmitRef, onTherapyPreviewChange,
   isConnected = true,
@@ -105,16 +109,6 @@ export function VentScreen({
   const [showPaywall, setShowPaywall] = useState(false);
   const [isMicMode, setIsMicMode] = useState(false);
   const [forceStopMsg, setForceStopMsg] = useState(false);
-  // Bridge Animated.Value → plain number for WaveformBar amplitude
-  const [waveAmplitude, setWaveAmplitude] = useState(0);
-
-  useEffect(() => {
-    const listenerId = meteringLevelAnim.addListener(({ value }) => {
-      setWaveAmplitude(value);
-    });
-    return () => meteringLevelAnim.removeListener(listenerId);
-  }, [meteringLevelAnim]);
-
   useEffect(() => {
     if (!forceStopCount) return;
     setForceStopMsg(true);
@@ -177,6 +171,8 @@ export function VentScreen({
   }, [ventTopicOverride]);
 
   const sessionStarted = chatMessages.length > 0 || therapyLoading;
+  const waveformActive = isRecording || isTtsSpeaking;
+  const waveformMeteringSV = isRecording ? meteringSV : ttsMeteringSV;
 
   async function openTherapySession(forceTopic = '', existingOpening?: string) {
     track('vent_session_started');
@@ -491,8 +487,9 @@ export function VentScreen({
       {!sessionStarted && (
         <View style={styles.waveArea}>
           <WaveformBar
-            amplitude={waveAmplitude}
-            active={isRecording}
+            meteringLevelAnim={meteringLevelAnim}
+            meteringSV={waveformMeteringSV}
+            active={waveformActive}
             style={styles.waveform}
           />
           <Text style={[typography.body, styles.waveSubtitle, { color: colors['text-tertiary'] }]}>
@@ -506,8 +503,9 @@ export function VentScreen({
         {/* Inline waveform when session active */}
         {sessionStarted && (
           <WaveformBar
-            amplitude={waveAmplitude}
-            active={isRecording}
+            meteringLevelAnim={meteringLevelAnim}
+            meteringSV={waveformMeteringSV}
+            active={waveformActive}
             style={styles.waveformInline}
           />
         )}

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, type Dispatch, type SetStateAction } from 'react';
+import { type SharedValue } from 'react-native-reanimated';
 import * as Sentry from '@sentry/react-native';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
@@ -55,6 +56,9 @@ type Props = {
   isTranscribing: boolean;
   micPulseAnim: Animated.Value;
   meteringLevelAnim: Animated.Value;
+  meteringSV: SharedValue<number>;
+  isTtsSpeaking: boolean;
+  ttsMeteringSV: SharedValue<number>;
   ttsEnabled: boolean;
   isConnected?: boolean;
   onSessionComplete: (params: {
@@ -92,13 +96,15 @@ const TONGUE_CONFIGS = [
 
 export function SessionScreen({
   userId, sessionCount, horoscopeContext, topic, traits, isRecording, isTranscribing,
-  micPulseAnim, meteringLevelAnim, ttsEnabled, isConnected = true, onSessionComplete, onExit,
+  micPulseAnim, meteringLevelAnim, meteringSV, isTtsSpeaking, ttsMeteringSV, ttsEnabled, isConnected = true, onSessionComplete, onExit,
   onStartVoiceRecording, onStopVoiceRecording, onStopTTS, onSpeakAndWait, sessionVoiceModeRef,
   sessionVoiceSubmitRef, onNavigateToVent, isPremium = false, onPremiumStatusChanged,
   hasSessionToday = false, onSessionSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { colors: themeColors, typography, spacing: sp, radius } = useTheme();
+  const waveformActive = isRecording || isTtsSpeaking;
+  const waveformMeteringSV = isRecording ? meteringSV : ttsMeteringSV;
 
   const [view, setView] = useState<SessionView>('entry');
   const [currentQuestion, setCurrentQuestion] = useState('');
@@ -909,16 +915,20 @@ export function SessionScreen({
           )}
 
           {/* Waveform — shown when recording */}
-          {isRecording && !transitioning && (
+          {waveformActive && (
             <View style={styles.waveformSection}>
-              <WaveformBar active={isRecording} amplitude={0} />
+              <WaveformBar
+                active={waveformActive}
+                meteringLevelAnim={meteringLevelAnim}
+                meteringSV={waveformMeteringSV}
+              />
               <Text
                 style={[
                   typography.labelCaps,
                   { color: themeColors['text-tertiary'], marginTop: sp.sm, textAlign: 'center' },
                 ]}
               >
-                LISTENING...
+                {isRecording ? 'LISTENING...' : 'SPEAKING...'}
               </Text>
             </View>
           )}

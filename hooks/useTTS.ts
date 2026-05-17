@@ -2,6 +2,13 @@ import { useState, useRef } from 'react';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Speech from 'expo-speech';
+import {
+  cancelAnimation,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { SUPABASE_URL } from '../constants';
 import { getAccessToken } from '../lib/auth';
 
@@ -11,10 +18,24 @@ export function useTTS() {
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const ttsoundRef = useRef<Audio.Sound | null>(null);
   const ttsResolveRef = useRef<(() => void) | null>(null);
+  const ttsMeteringSV = useSharedValue(0);
 
   function setSpeaking(val: boolean) {
     isSpeakingRef.current = val;
     setIsSpeaking(val);
+    cancelAnimation(ttsMeteringSV);
+    ttsMeteringSV.value = val
+      ? withRepeat(
+          withSequence(
+            withTiming(0.35, { duration: 90 }),
+            withTiming(0.85, { duration: 120 }),
+            withTiming(0.5, { duration: 80 }),
+            withTiming(0.7, { duration: 110 }),
+          ),
+          -1,
+          true,
+        )
+      : withTiming(0, { duration: 160 });
   }
 
   async function stopTTS() {
@@ -38,7 +59,6 @@ export function useTTS() {
         await Audio.setAudioModeAsync({
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
-          defaultToSpeakerphone: true,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
         });
@@ -110,5 +130,5 @@ export function useTTS() {
     }
   }
 
-  return { isSpeaking, isSpeakingRef, ttsEnabled, setTtsEnabled, ttsoundRef, stopTTS, speakAndWait };
+  return { isSpeaking, isSpeakingRef, ttsEnabled, setTtsEnabled, ttsoundRef, ttsMeteringSV, stopTTS, speakAndWait };
 }
