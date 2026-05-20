@@ -19,13 +19,14 @@ import { IconButton } from './ui/IconButton';
 import { TextInput } from './ui/TextInput';
 import { saveProfile } from '../lib/auth';
 import { PRIVACY_POLICY_URL } from '../constants';
+import { AIConsentScreen } from './AIConsentScreen';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type ProfileData = { name: string; dob: string };
 type Props = {
   onComplete: (result: ProfileData) => void;
 };
-type Step = 1 | 2;
+type Step = 1 | 2 | 3;
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 function isNameValid(name: string): boolean {
@@ -72,7 +73,7 @@ export function OnboardingScreen({ onComplete }: Props) {
     setError('');
     try {
       await saveProfile(trimmedName, dob);
-      onComplete({ name: trimmedName, dob });
+      setStep(3);
     } catch {
       setError('Something went wrong. Try again.');
       setSaving(false);
@@ -103,7 +104,7 @@ export function OnboardingScreen({ onComplete }: Props) {
               { color: colors['text-tertiary'], flex: 1, textAlign: 'center' },
             ]}
           >
-            Step 1 of 2
+            Step 1 of 3
           </Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -155,6 +156,23 @@ export function OnboardingScreen({ onComplete }: Props) {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // STEP 3 — AI Consent
+  // ─────────────────────────────────────────────────────────────────────────
+  if (step === 3) {
+    const d = parseInt(day, 10);
+    const m = parseInt(month, 10);
+    const y = parseInt(year, 10);
+    const dobStr = (day && month && year && !isNaN(d) && !isNaN(m) && !isNaN(y))
+      ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      : '';
+    return (
+      <AIConsentScreen
+        onConsent={() => onComplete({ name: name.trim(), dob: dobStr })}
+      />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // STEP 2 — Date of Birth
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -179,7 +197,7 @@ export function OnboardingScreen({ onComplete }: Props) {
             { color: colors['text-tertiary'], flex: 1, textAlign: 'center' },
           ]}
         >
-          Step 2 of 2
+          Step 2 of 3
         </Text>
         <View style={styles.headerSpacer} />
       </View>
@@ -305,7 +323,7 @@ export function OnboardingScreen({ onComplete }: Props) {
           onPress={async () => {
             const trimmed = name.trim();
             try { await saveProfile(trimmed, ''); } catch { /* profile save failed — proceed anyway, onboarding flag ensures no loop */ }
-            onComplete({ name: trimmed, dob: '' });
+            setStep(3);
           }}
           accessibilityLabel="Skip"
           accessibilityRole="button"

@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/react-native';
 import { SUPABASE_URL, CLAUDE_MODEL } from '../../constants';
 import { getAccessToken } from '../auth';
+import { assertAIConsent } from '../aiConsent';
 
 export function sanitizeInput(text: string, maxChars = 2000): string {
   return text.replace(/\0/g, '').slice(0, maxChars);
@@ -11,6 +12,7 @@ export async function callClaude(
   maxTokens: number,
   system?: string
 ): Promise<string> {
+  await assertAIConsent();
   const token = await getAccessToken();
   const body: Record<string, unknown> = {
     model: CLAUDE_MODEL,
@@ -42,6 +44,7 @@ export async function callClaudeChat(
   messages: { role: 'user' | 'assistant'; content: string }[],
   maxTokens: number
 ): Promise<string> {
+  await assertAIConsent();
   const token = await getAccessToken();
   const safeMessages = messages.map(m => ({ ...m, content: sanitizeInput(m.content) }));
 

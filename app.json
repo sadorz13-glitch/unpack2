@@ -17,7 +17,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.zute.unpack2",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Unpack uses your microphone so you can speak your reflections aloud during journaling sessions. Your voice is transcribed to text and used by AI to generate personalized insights — for example, when you answer a reflection question or talk with your AI companion."
       }
     },
     "android": {

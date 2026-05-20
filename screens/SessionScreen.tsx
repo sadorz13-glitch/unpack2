@@ -72,7 +72,7 @@ type Props = {
   }) => void;
   onExit: () => void;
   onStartVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
-  onStopVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
+  onStopVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => Promise<void>;
   onStopTTS: () => void;
   onSpeakAndWait: (text: string) => Promise<void>;
   sessionVoiceModeRef: React.MutableRefObject<boolean>;
@@ -310,6 +310,14 @@ export function SessionScreen({
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
+      onStopTTS();
+      onStopVoiceRecording(setInput);
+    };
+  }, []);
+
+  useEffect(() => {
     if (view !== 'celebrate') return;
     flashAnim.setValue(0);
     streakBounce.setValue(0);
@@ -410,6 +418,7 @@ export function SessionScreen({
   async function handleExit() {
     if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
     onStopTTS();
+    await onStopVoiceRecording(setInput);
     if (!sessionSavedRef.current && answersRef.current.length > 0 && insight) {
       try {
         await saveSession(answersRef.current, insight, currentTraits || {}, currentTopic, insightShort);
@@ -425,9 +434,10 @@ export function SessionScreen({
       nativeEvent.translationX > 60 &&
       view === 'question'
     ) {
-      saveRequeuedQuestion(currentQuestionRef.current).then(() => {
+      saveRequeuedQuestion(currentQuestionRef.current).then(async () => {
         if (sessionVoiceModeRef) sessionVoiceModeRef.current = false;
         onStopTTS();
+        await onStopVoiceRecording(setInput);
         onExit();
       });
     }

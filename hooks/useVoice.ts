@@ -6,6 +6,7 @@ import * as Sentry from '@sentry/react-native';
 import { SUPABASE_URL, VAD_HARD_TIMEOUT_MS } from '../constants';
 import { getAccessToken } from '../lib/auth';
 import { checkMicPermission } from '../lib/micPermission';
+import { hasAIConsent } from '../lib/aiConsent';
 
 function createVAD(isTtsSpeaking?: () => boolean) {
   let baselineDb = -50;
@@ -187,60 +188,78 @@ export function useVoice() {
     } catch (e) { Sentry.captureException(e); }
   }
 
-  async function stopVoiceRecording(setterFn: Dispatch<SetStateAction<string>>) {
+  async function stopVoiceRecording(setterFn: Dispatch<SetStateAction<string>>): Promise<void> {
     const rec = recordingRef.current;
     if (!rec) return;
     recordingRef.current = null; // claim immediately — prevents double-stop race
     if (hardTimeoutRef.current) { clearTimeout(hardTimeoutRef.current); hardTimeoutRef.current = null; }
+
+    // Synchronous visual cleanup before any await.
+    vadRef.current = null;
+    rec.setOnRecordingStatusUpdate(null);
+    setIsRecording(false);
+    setIsTranscribing(true);
+    Animated.timing(meteringLevelAnim, { toValue: 1, duration: 150, useNativeDriver: false }).start();
+    meteringSV.value = 0;
+
+    // Stop hardware and release the iOS audio session.
+    // The Promise resolves here so callers can await mic release without
+    // waiting for Whisper transcription.
     try {
-      vadRef.current = null;
-      rec.setOnRecordingStatusUpdate(null);
-      setIsRecording(false);
-      setIsTranscribing(true);
-      Animated.timing(meteringLevelAnim, { toValue: 1, duration: 150, useNativeDriver: false }).start();
-      meteringSV.value = 0;
       await rec.stopAndUnloadAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
       });
-      const uri = rec.getURI();
-      if (!uri) { setIsTranscribing(false); return; }
-
-      const formData = new FormData();
-      formData.append('file', { uri, type: 'audio/m4a', name: 'voice.m4a' } as any);
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'en');
-
-      const token = await getAccessToken();
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-proxy`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      setIsTranscribing(false);
-      if (!res.ok) {
-        return;
-      }
-      const data = await res.json();
-      const text = data.text?.trim();
-      if (text) {
-        if (onTranscribedRef.current) {
-          onTranscribedRef.current(text);
-        } else {
-          setterFn((prev: string) => (prev ? prev + ' ' + text : text));
-          setInputMode('type');
-        }
-      }
+      if (__DEV__) console.log('[useVoice] audio mode reset, mic released');
     } catch (e) {
-      setIsRecording(false);
       setIsTranscribing(false);
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
       }).catch(() => {});
+      Sentry.captureException(e);
+      return;
     }
+
+    // Mic is released — transcription runs in background without blocking the caller.
+    const uri = rec.getURI();
+    if (!uri) { setIsTranscribing(false); return; }
+
+    void (async () => {
+      try {
+        if (!(await hasAIConsent())) { setIsTranscribing(false); return; }
+
+        const formData = new FormData();
+        formData.append('file', { uri, type: 'audio/m4a', name: 'voice.m4a' } as any);
+        formData.append('model', 'whisper-1');
+        formData.append('language', 'en');
+
+        const token = await getAccessToken();
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-proxy`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+
+        setIsTranscribing(false);
+        if (!res.ok) return;
+        const data = await res.json();
+        const text = data.text?.trim();
+        if (text) {
+          if (onTranscribedRef.current) {
+            onTranscribedRef.current(text);
+          } else {
+            setterFn((prev: string) => (prev ? prev + ' ' + text : text));
+            setInputMode('type');
+          }
+        }
+      } catch {
+        setIsTranscribing(false);
+      }
+    })();
   }
 
   return {

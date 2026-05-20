@@ -23,6 +23,8 @@ type Props = {
   notifEnabled: boolean;
   onSaveNotifPrefs: (hour: number, minute: number, enabled: boolean) => void;
   onOpenCrisisResources?: () => void;
+  aiConsentDate?: string | null;
+  onRevokeConsent?: () => void;
 };
 
 type Step = 'menu' | 'confirm' | 'type' | 'notifications';
@@ -41,6 +43,8 @@ export function SettingsSheet({
   notifEnabled,
   onSaveNotifPrefs,
   onOpenCrisisResources,
+  aiConsentDate,
+  onRevokeConsent,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, typography, spacing, radius } = useTheme();
@@ -441,6 +445,27 @@ export function SettingsSheet({
                 setStep('notifications');
               }}
             />
+          </View>
+
+          {/* AI FEATURES section */}
+          <View style={s.sectionWrapper}>
+            <SectionDivider label="AI Features" />
+          </View>
+          <View style={s.rowGroup}>
+            <ListRow
+              title={aiConsentDate ? `AI consent given on ${aiConsentDate}` : 'AI features disabled'}
+              titleColor={aiConsentDate ? colors['text-secondary'] : colors['status-warning']}
+            />
+            {aiConsentDate ? (
+              <>
+                <View style={s.rowDivider} />
+                <ListRow
+                  title="Revoke AI consent"
+                  titleColor={colors['status-danger']}
+                  onPress={onRevokeConsent}
+                />
+              </>
+            ) : null}
           </View>
 
           {/* APPEARANCE section */}

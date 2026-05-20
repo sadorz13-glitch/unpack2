@@ -87,3 +87,9 @@ export async function deleteAccount(): Promise<void> {
   await supabase.auth.signOut();
   _userId = null;
 }
+
+export async function saveAIConsent(given: boolean): Promise<void> {
+  if (!_userId) return;
+  const { error } = await supabase.from('profiles').update({ ai_consent_given: given }).eq('user_id', _userId);
+  if (__DEV__) console.log('[saveAIConsent] result error:', error);
+}

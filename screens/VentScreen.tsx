@@ -61,7 +61,7 @@ type Props = {
   isTtsSpeaking: boolean;
   ttsMeteringSV: SharedValue<number>;
   onStartVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
-  onStopVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => void;
+  onStopVoiceRecording: (setter: Dispatch<SetStateAction<string>>) => Promise<void>;
   therapyVoiceModeRef: React.MutableRefObject<boolean>;
   therapyVoiceSubmitRef: React.MutableRefObject<((text: string) => void) | null>;
   onTherapyPreviewChange: (line: string) => void;
@@ -118,6 +118,14 @@ export function VentScreen({
     const t = setTimeout(() => setForceStopMsg(false), FORCE_STOP_MSG_DURATION_MS);
     return () => clearTimeout(t);
   }, [forceStopCount]);
+
+  useEffect(() => {
+    return () => {
+      therapyVoiceModeRef.current = false;
+      onStopVoiceRecording(setTherapyInput);
+      stopTTS().catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     therapyVoiceSubmitRef.current = sendTherapyMessage;
@@ -318,6 +326,13 @@ export function VentScreen({
     openTherapySession(pinnedTherapyTopic, therapyPreview || undefined);
   }
 
+  async function handleClose() {
+    therapyVoiceModeRef.current = false;
+    await onStopVoiceRecording(setTherapyInput);
+    await stopTTS().catch(() => {});
+    onClose?.();
+  }
+
   function exitMicMode() {
     setIsMicMode(false);
     therapyVoiceModeRef.current = false;
@@ -351,7 +366,7 @@ export function VentScreen({
           <View style={styles.headerRow}>
             <IconButton
               icon={X}
-              onPress={onClose ?? (() => {})}
+              onPress={handleClose}
               style={styles.closeBtn}
               accessibilityLabel="Close"
             />
@@ -394,7 +409,7 @@ export function VentScreen({
           <View style={styles.headerRow}>
             <IconButton
               icon={X}
-              onPress={onClose ?? (() => {})}
+              onPress={handleClose}
               style={styles.closeBtn}
               accessibilityLabel="Close"
             />
@@ -430,7 +445,7 @@ export function VentScreen({
         <View style={styles.headerRow}>
           <IconButton
             icon={X}
-            onPress={onClose ?? (() => {})}
+            onPress={handleClose}
             style={styles.closeBtn}
             accessibilityLabel="Close"
           />

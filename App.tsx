@@ -17,7 +17,9 @@ import * as Notifications from 'expo-notifications';
 
 import { STORAGE_KEY_HAS_SEEN_WELCOME, STORAGE_KEY_HANDLED_TOPICS, STORAGE_KEY_FLAGGED_TOPICS, STORAGE_KEY_VENT_MESSAGES_USED, STORAGE_KEY_HOME_CACHE, STORAGE_KEY_PENDING_SESSION, NOTIF_PREFS_KEY, DEFAULT_NOTIF_HOUR, DEFAULT_NOTIF_MINUTE, REVIVAL_PRODUCT_ID } from './constants';
 import { supabase, loadStreakAndCount, loadWeeklyTraits, loadLastSession, saveSession, recordStreakRevival, computeCanRevive as computeCanReviveDate } from './lib/supabase';
-import { initAuth, buildHoroscopeContext, setAuthUser, signOut, deleteAccount, getUserId } from './lib/auth';
+import { initAuth, buildHoroscopeContext, setAuthUser, signOut, deleteAccount, getUserId, saveAIConsent } from './lib/auth';
+import { AI_CONSENT_KEY_PREFIX, hasAIConsent } from './lib/aiConsent';
+import { AIConsentScreen } from './components/AIConsentScreen';
 import { track, identifyUser, resetAnalytics } from './lib/analytics';
 import { initIAP, loginIAP, logoutIAP, purchaseRevival } from './lib/iap';
 import Purchases from 'react-native-purchases';
@@ -74,6 +76,8 @@ export default function App() {
   const [horoscopeContext, setHoroscopeContext] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAIConsent, setShowAIConsent] = useState(false);
+  const [aiConsentDate, setAiConsentDate] = useState<string | null>(null);
   const [notifPrefs, setNotifPrefs] = useState({ hour: DEFAULT_NOTIF_HOUR, minute: DEFAULT_NOTIF_MINUTE, enabled: true });
 
   // ── Navigation ──────────────────────────────────────────────────────────
@@ -167,8 +171,8 @@ export default function App() {
     }, () => ttsIsSpeakingRef.current);
   }
 
-  function stopVoiceRecording(setterFn: Dispatch<SetStateAction<string>>) {
-    _stopVoiceRecording(setterFn);
+  function stopVoiceRecording(setterFn: Dispatch<SetStateAction<string>>): Promise<void> {
+    return _stopVoiceRecording(setterFn);
   }
 
   // ── Effects ──────────────────────────────────────────────────────────────
@@ -232,6 +236,13 @@ export default function App() {
         setHoroscopeContext(buildHoroscopeContext(profile.dob));
         const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
         if (!seen) setShowWelcome(true);
+        // Check AI consent for existing users
+        const consentVal = await AsyncStorage.getItem(`${AI_CONSENT_KEY_PREFIX}_${uid}`);
+        if (!consentVal || consentVal === '0') {
+          setShowAIConsent(true);
+        } else {
+          setAiConsentDate(consentVal);
+        }
       }
       setAuthReady(true);
       AsyncStorage.getItem(NOTIF_PREFS_KEY).then(val => {
@@ -298,6 +309,12 @@ export default function App() {
           } else {
             const seen = await AsyncStorage.getItem(STORAGE_KEY_HAS_SEEN_WELCOME);
             if (!seen) setShowWelcome(true);
+          }
+          const consentVal = await AsyncStorage.getItem(`${AI_CONSENT_KEY_PREFIX}_${uid}`);
+          if (!consentVal || consentVal === '0') {
+            setShowAIConsent(true);
+          } else {
+            setAiConsentDate(consentVal);
           }
         }
       } else {
@@ -423,6 +440,17 @@ export default function App() {
     await signOut();
   }
 
+  async function guardedStartSession(source: 'home' | 'talk') {
+    if (!isPremium && hasSessionToday) { setShowSessionPaywall(true); return; }
+    const consented = await hasAIConsent();
+    if (!consented) {
+      setShowAIConsent(true);
+      return;
+    }
+    setSessionLaunchSource(source);
+    setShowSession(true);
+  }
+
   async function handleDeleteAccount(): Promise<void> {
     await deleteAccount();
     await AsyncStorage.multiRemove([
@@ -494,7 +522,13 @@ export default function App() {
               <OnboardingScreen
                 onComplete={({ name, dob }: { name: string; dob: string }) => {
                   track('onboarding_completed');
-                  if (userId) AsyncStorage.setItem(`onboardingComplete_${userId}`, '1');
+                  if (userId) {
+                    AsyncStorage.setItem(`onboardingComplete_${userId}`, '1');
+                    const consentDateStr = new Date().toISOString().split('T')[0];
+                    AsyncStorage.setItem(`${AI_CONSENT_KEY_PREFIX}_${userId}`, consentDateStr);
+                    setAiConsentDate(consentDateStr);
+                    saveAIConsent(true).catch(() => {});
+                  }
                   setHoroscopeContext(buildHoroscopeContext(dob));
                   setNeedsOnboarding(false);
                   if (__DEV__) console.log('[App onComplete] profile saved, now querying to verify...');
@@ -560,11 +594,7 @@ export default function App() {
                 fireFloatAnim={fireFloatAnim}
                 fireOpacityAnim={fireOpacityAnim}
                 streakScaleAnim={streakScaleAnim}
-                onStartSession={() => {
-                  if (!isPremium && hasSessionToday) { setShowSessionPaywall(true); return; }
-                  setSessionLaunchSource('home');
-                  setShowSession(true);
-                }}
+                onStartSession={() => guardedStartSession('home')}
                 onOpenTalk={() => { setActiveTab(1); pagerRef.current?.setPage(TAB_TO_PAGE[1]); }}
                 onOpenJournal={() => { setActiveTab(2); pagerRef.current?.setPage(TAB_TO_PAGE[2]); }}
                 onOpenAnswers={() => { setActiveTab(2); pagerRef.current?.setPage(TAB_TO_PAGE[2]); setShowAnswersTick(t => t + 1); }}
@@ -588,12 +618,12 @@ export default function App() {
             <View key="1" style={{ flex: 1 }}>
               <Sentry.ErrorBoundary fallback={<View style={{ flex: 1, backgroundColor: colors.bg }} />}>
               <TalkHubScreen
-                onStartSession={() => {
-                  if (!isPremium && hasSessionToday) { setShowSessionPaywall(true); return; }
-                  setSessionLaunchSource('talk');
-                  setShowSession(true);
+                onStartSession={() => guardedStartSession('talk')}
+                onStartVent={async () => {
+                  const consented = await hasAIConsent();
+                  if (!consented) { setShowAIConsent(true); return; }
+                  setShowVent(true);
                 }}
-                onStartVent={() => setShowVent(true)}
                 hasSessionToday={hasSessionToday}
                 isPremium={isPremium}
               />
@@ -636,6 +666,14 @@ export default function App() {
           notifEnabled={notifPrefs.enabled}
           onSaveNotifPrefs={handleSaveNotifPrefs}
           onOpenCrisisResources={() => setShowCrisis(true)}
+          aiConsentDate={aiConsentDate}
+          onRevokeConsent={async () => {
+            if (userId) {
+              await AsyncStorage.setItem(`${AI_CONSENT_KEY_PREFIX}_${userId}`, '0');
+              setAiConsentDate(null);
+            }
+            saveAIConsent(false).catch(() => {});
+          }}
         />
         <RevivalModal
           visible={showRevival}
@@ -816,6 +854,26 @@ export default function App() {
         >
           <SafeAreaProvider>
             <CrisisResourcesScreen onClose={() => setShowCrisis(false)} />
+          </SafeAreaProvider>
+        </Modal>
+        <Modal
+          visible={showAIConsent}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => {}}
+        >
+          <SafeAreaProvider>
+            <AIConsentScreen
+              onConsent={async () => {
+                if (userId) {
+                  const dateStr = new Date().toISOString().split('T')[0];
+                  await AsyncStorage.setItem(`${AI_CONSENT_KEY_PREFIX}_${userId}`, dateStr);
+                  setAiConsentDate(dateStr);
+                }
+                saveAIConsent(true).catch(() => {});
+                setShowAIConsent(false);
+              }}
+            />
           </SafeAreaProvider>
         </Modal>
         </SafeAreaProvider>

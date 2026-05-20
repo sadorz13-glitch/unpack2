@@ -11,6 +11,7 @@ import {
 } from 'react-native-reanimated';
 import { SUPABASE_URL } from '../constants';
 import { getAccessToken } from '../lib/auth';
+import { hasAIConsent } from '../lib/aiConsent';
 
 export function useTTS() {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -50,6 +51,7 @@ export function useTTS() {
 
   async function speakAndWait(text: string) {
     if (!text) { return; }
+    if (!(await hasAIConsent())) { return; }
     try {
       await stopTTS();
       setSpeaking(true);
